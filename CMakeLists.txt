@@ -19,6 +19,7 @@ set(PREPARING_SRC
 )
 
 set(SEGMENTATION_SRC
+    segmentation/endpoints.h
     segmentation/segmentation.hpp segmentation/segmentation.cpp
 #    segmentation/segmenter.hpp segmentation/segmenter.cpp
     segmentation/labelmapping.hpp segmentation/labelmapping.cpp

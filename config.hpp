@@ -1,4 +1,6 @@
 #pragma once
+#include <string>
+#include <vector>
 
     // Конфигурация для Canny.
     struct CannyConfig {
@@ -38,8 +40,8 @@
         int cropPadding;
         double binaryThreshold = 0.2;
         // Параметры для удаления маленьких компонентов (components_out и components_in).
-        int compOutMinSize = 20;
-        int compInMinSize = 20;
+        int compOutMinSize = 40;
+        int compInMinSize = 40;
         // Порог для финальной бинаризации (rank/make_binary).
         double rankBinaryThreshold;
     };

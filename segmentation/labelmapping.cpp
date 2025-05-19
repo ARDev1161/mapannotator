@@ -135,26 +135,30 @@ LabelMapping::extractIsolatedZones(const cv::Mat1b& freeMap,
     int nComp = cv::connectedComponents(walkMask, comp, 8, CV_32S);
 
     /* ─ 3. Считаем, сколько центроидов в каждой компоненте ────────────────── */
-    std::vector<int> count(nComp, 0);
-    std::unordered_map<int,int> centroid2comp;    // label → compID
-
-    for (auto& [lbl, pt] : centroids) {
-        int cid = 0;                              // 0 = фон/за пределами
-        if (pt.inside(cv::Rect(0,0,freeMap.cols,freeMap.rows)))
-            cid = comp(pt);
-        centroid2comp[lbl] = cid;
-        if (cid > 0) ++count[cid];
+    std::unordered_map<int,std::vector<int>> bindings;    // compID → labels
+    int backgroundLabel = 0;                              // 0 = фон/стены
+    for (auto& [label, coord] : centroids) {
+        if (label == backgroundLabel)            // 0 — стены/фон, пропускаем
+            continue;
+        int compId = comp(coord);
+        if (compId != backgroundLabel)
+            bindings[compId].push_back(label);
     }
 
-    /* ─ 4. Формируем маски только для изолированных компонентов ───────────── */
+    /* ─ 4. Формируем зоны для оставшихся меток ───────────── */
     std::vector<ZoneMask> zones;
-    cv::Mat1b tmpMask(freeMap.size(), 0);         // будет переиспользоваться
+    zones.reserve(bindings.size());
+    for (const auto& [compId, labels] : bindings)
+    {
+        if(labels.size() == 1) // проверка изолированности зоны
+        {
+            // Создаём бинарную маску: 255 там, где comp == compId
+            cv::Mat1b mask;
+            cv::compare(comp, compId, mask, cv::CMP_EQ);   // результат 8-бит, 0 / 255
 
-    for (auto& [lbl, cid] : centroid2comp)
-        if (cid == 0 || count[cid] == 1) {        // изолирован
-            // cv::compare быстрее, чем == в выражении
-            cv::compare(comp, cid, tmpMask, cv::CMP_EQ);
-            zones.push_back( ZoneMask{ lbl, tmpMask.clone() } );
+            zones.push_back({labels.front(), std::move(mask)});
         }
+    }
+
     return zones;
 }

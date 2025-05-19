@@ -3,6 +3,7 @@
 #include <string>
 #include <filesystem>
 #include <opencv2/opencv.hpp>
+#include <opencv2/ximgproc.hpp>
 #include "yaml-cpp/yaml.h"
 
 #include "mapgraph/zonegraph.hpp"
@@ -11,6 +12,7 @@
 #include "preparing/mappreprocessing.hpp"
 #include "segmentation/segmentation.hpp"
 #include "segmentation/labelmapping.hpp"
+#include "segmentation/endpoints.h"
 #include "config.hpp"
 #include "utils.hpp"
 
@@ -199,6 +201,8 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
     {
         double sigma = (iter + 1) * sigmaStep;               // растёт σ
 
+        /* 0.  подготовка маски стен с усиленной маской в endpoints --------------------------- */
+        // Расширяем стены
         cv::Mat1b kernel = cv::getStructuringElement(
                                cv::MORPH_RECT, cv::Size(2*1+1, 2*1+1));
         cv::erode(srcBinary, srcBinary, kernel, cv::Point(-1,-1), 1);
@@ -212,7 +216,7 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
 
         cv::Mat1b seg8u;
         bin.convertTo(seg8u, CV_8U, 255);       // CV_8U для applyColorMap
-        showMat("srcBinary " + std::to_string(iter), seg8u);
+//        showMat("srcBinary " + std::to_string(iter), seg8u);
 
         if (cv::countNonZero(bin) == 0) {        // всё стало стенами
             std::cerr << "[warn] free space vanished at iter " << iter << '\n';
@@ -222,9 +226,11 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
         /* 3.  ищем компоненты, изолированы ли центроиды ------------------- */
         auto zones = LabelMapping::extractIsolatedZones(bin, todo, /*invertFree=*/true);
 
+        int it = 0;
         for (auto& z : zones) {
+            cv::dilate(z.mask, z.mask, kernel, cv::Point(-1,-1), iter);
             allZones.push_back( std::move(z) );
-            todo.erase(allZones.back().label);   // метка выполнена
+            todo.erase(z.label);   // метка выполнена
         }
     }
 
@@ -234,6 +240,7 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
 
     return allZones;                             // набор масок зон
 }
+
 
 int main(int argc, char** argv)
 {
@@ -331,20 +338,45 @@ int main(int argc, char** argv)
     showMat("Denoised Map", rank);
 
     // Расширенние черных зон(препятствия)
-    cv::Mat binaryDilated = erodeBinary(rank, segmenterConfig.dilateConfig.kernelSize, segmenterConfig.dilateConfig.iterations);
+    cv::Mat1b binaryDilated = erodeBinary(rank, segmenterConfig.dilateConfig.kernelSize, segmenterConfig.dilateConfig.iterations);
 
-    // Вычисляем список меток.
-//    auto labels = LabelMapping::computeLabels(binaryDilated, segmenterConfig.labelsListConfig.backgroundErosionKernelSize);
 
-//    auto isolated = LabelMapping::extractIsolatedZones(binaryDilated, labels.centroids);
 
-//    auto zones = segmentByWallErosion(binaryDilated, /*maxIter=*/50, /*erosionSize=*/1);
 
-    auto zones = segmentByGaussianThreshold(binaryDilated);
+
+
+
+            cv::Mat1b wallMask;
+            cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);   // 255 там, где стена
+    cv::Mat1b skeleton;
+    cv::Mat sk8;
+    cv::ximgproc::thinning(wallMask, skeleton, cv::ximgproc::THINNING_ZHANGSUEN);
+    skeleton.convertTo(sk8, CV_8U, 255);
+            std::cout << "skeleton non-zero = " << cv::countNonZero(skeleton) << std::endl;
+    showMat("Skeleton", sk8);
+
+    std::vector<cv::Point> ends;
+    showMat("Skeleton + endpoints", visualizeSkeletonEndpoints(skeleton, &ends));
+
+    cv::Mat1b endpointsMask = drawSkeletonEndpoints(skeleton, 3);
+    showMat("Endpoints mask", endpointsMask); // inflation radius
+
+
+
+
+
+    auto zones = segmentByGaussianThreshold(binaryDilated, 50, 0.5);
 
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
-    for (const auto& z : zones)
+            int iter = 0;
+    for (const auto& z : zones) {
+
+        cv::Mat1b seg8u;
+        z.mask.convertTo(seg8u, CV_8U, 255);       // CV_8U для applyColorMap
+//        showMat("Zone №" + std::to_string(iter++), seg8u);
+
         segmentation.setTo(z.label, z.mask);
+    }
 
     cv::Mat3b vis = colorizeSegmentation(segmentation,
                     "Rooms colored",
