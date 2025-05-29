@@ -233,4 +233,79 @@ static void showMat(const std::string &windowName, const cv::Mat &mat, bool isCo
 
 }
 
+/*-------------------------------------------------------------------------*/
+/*  service helpers                                                        */
+/*-------------------------------------------------------------------------*/
+
+/// Читаемый вывод cv::Mat::type()
+static std::string matTypeStr(int t)
+{
+    const int depth = t & CV_MAT_DEPTH_MASK;
+    const int chans = 1 + (t >> CV_CN_SHIFT);
+
+    const char* depthStr =
+        depth == CV_8U  ? "CV_8U"  :
+        depth == CV_8S  ? "CV_8S"  :
+        depth == CV_16U ? "CV_16U" :
+        depth == CV_16S ? "CV_16S" :
+        depth == CV_32S ? "CV_32S" :
+        depth == CV_32F ? "CV_32F" :
+        depth == CV_64F ? "CV_64F" : "UNKNOWN";
+
+    std::ostringstream oss;
+    oss << depthStr << 'C' << chans;
+    return oss.str();
+}
+
+/*-------------------------------------------------------------------------*/
+/*  проверка совместимости                                                 */
+/*-------------------------------------------------------------------------*/
+/**
+ * @brief   Проверить, одинаковы ли размеры и типы набора матриц.
+ * @param   mats  список матриц (2 и более)
+ * @return  0  – совместимы
+ *         -1  – различаются размеры
+ *         -2  – различаются типы
+ *
+ * В случае несовместимости вся информация выводится в std::cerr.
+ */
+static int checkMatCompatibility(const std::vector<cv::Mat>& mats)
+{
+    if (mats.size() < 2)               // одна — уж точно «совместима»
+        return 0;
+
+    const cv::Size refSize = mats[0].size();
+    const int      refType = mats[0].type();
+
+    bool sizeMismatch = false;
+    bool typeMismatch = false;
+
+    for (size_t i = 1; i < mats.size(); ++i)
+    {
+        if (mats[i].size() != refSize) sizeMismatch = true;
+        if (mats[i].type() != refType) typeMismatch = true;
+    }
+
+    if (!sizeMismatch && !typeMismatch)
+        return 0;                      // всё ок
+
+    /* —―― выводим подробности ――― */
+    std::cerr << "[checkMatCompatibility] mismatch detected:\n";
+    for (size_t i = 0; i < mats.size(); ++i)
+        std::cerr << "  #" << i << ": size = " << mats[i].cols << 'x' << mats[i].rows
+                  << ", type = " << matTypeStr(mats[i].type()) << '\n';
+
+    return sizeMismatch ? -1 : -2;
+}
+
+/*-------------------------------------------------------------------------*/
+/*  удобный вариадик-обёртка — можно передавать любое число матриц         */
+/*-------------------------------------------------------------------------*/
+template<typename... Mats>
+int checkMatCompatibility(const cv::Mat& m0, const cv::Mat& m1, const Mats&... rest)
+{
+    std::vector<cv::Mat> pack = { m0, m1, rest... };
+    return checkMatCompatibility(pack);
+}
+
 #endif // UTILS_H

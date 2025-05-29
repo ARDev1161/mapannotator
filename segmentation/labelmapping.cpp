@@ -113,7 +113,7 @@ LabelsInfo LabelMapping::computeLabels(const cv::Mat& binaryDilated, int backgro
 
     cv::Mat outLabels;
     labels.centroidLabels.convertTo(outLabels, CV_8U, 255);
-    cv::imshow("labels", outLabels);
+    showMat("labels", outLabels);
 
     return labels;
 }
@@ -161,4 +161,24 @@ LabelMapping::extractIsolatedZones(const cv::Mat1b& freeMap,
     }
 
     return zones;
+}
+
+cv::Mat1b LabelMapping::buildOccupancyMask(const cv::Mat1b &background, const std::vector<ZoneMask> &allZones)
+{
+    CV_Assert(!background.empty() && background.type() == CV_8UC1);
+
+    /* 1. Начинаем с копии background; сюда «нагружаем» зоны */
+    cv::Mat1b occ = ~background.clone();          // 0 = стена, 255 = свободно
+
+    /* 2. Каждую зону превращаем в занятое пространство */
+    for (const auto& z : allZones)
+    {
+        CV_Assert(z.mask.size() == background.size() &&
+                  z.mask.type() == CV_8UC1);
+
+        // Белые пиксели (255) из z.mask копируем в occ
+        occ.setTo(255, z.mask);
+    }
+
+    return occ;
 }

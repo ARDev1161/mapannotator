@@ -33,6 +33,19 @@ public:
     extractIsolatedZones(const cv::Mat1b& freeMap,
                          const std::unordered_map<int, cv::Point>& centroids,
                          bool invertFree = false);
+    /**
+     *  buildOccupancyMask
+     *  ------------------
+     *  Формирует итоговую карту занятости:
+     *    • 0  – занято  (стены **или** зоны)
+     *    • 255 – свободно
+     *
+     *  @param background  CV_8UC1, 0 = стена, 255 = пусто
+     *  @param allZones    вектор зон (mask: 255 = зона, 0 = остальное)
+     *  @return            CV_8UC1 той же геометрии, что background
+     */
+    static cv::Mat1b buildOccupancyMask(const cv::Mat1b&                   background,
+                                 const std::vector<ZoneMask>&       allZones);
 private:
     // Функция получает бинарное изображение (8UC1), где объекты имеют значение 255, фон — 0,
     // и возвращает карту меток для watershed (каждая связная область получает уникальное целочисленное значение).
