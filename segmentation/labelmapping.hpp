@@ -27,7 +27,7 @@ public:
     template<typename T>
     static cv::Mat remap(const cv::Mat& inputMap, const std::map<T, T>& remapDict);
 
-    static LabelsInfo computeLabels(const cv::Mat& binaryDilated, int backgroundErosionKernelSize);
+    static LabelsInfo computeLabels(const cv::Mat1b& binaryDilated, int backgroundErosionKernelSize);
 
     static std::vector<ZoneMask>
     extractIsolatedZones(const cv::Mat1b& freeMap,
@@ -63,6 +63,27 @@ private:
     static LabelsInfo getSeeds(const cv::Mat& binInput,
                                  int dilateIterations = 1,
                                  int dilateKernelSize = 3);
+    /**
+     * @brief  Детектировать углы Harris и добавить окружности в тот же wallMask.
+     *
+     * @param wallMask   [in/out] Маска стен (CV_8UC1): 0 — стены, 255 — свободно.
+     *                   Функция модифицирует эту матрицу.
+     * @param radius     Радиус окружности.
+     * @param circleVal  Значение пикселей окружности (0 = стена, 255 = свободно, др. = метка).
+     * @param maxCorners Максимальное число углов (по умолчанию 400).
+     * @param harrisK    Параметр k для Harris (0.04–0.06).
+     * @param quality    Относительный порог (0‒1) для goodFeaturesToTrack.
+     * @param minDist    Мин. расстояние между углами (обычно ≥ radius).
+     *
+     * @return           Количество нарисованных окружностей.
+     */
+    static int addCornerCirclesHarris(cv::Mat1b &wallMask,
+                                   int radius,
+                                   uchar circleVal  = 0,
+                                   int maxCorners  = 400,
+                                   double harrisK   = 0.04,
+                                   double quality  = 0.01,
+                                   double minDist  = 5.0);
 };
 
 // remap: глубокое копирование и замена значений согласно словарю remapDict.

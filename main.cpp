@@ -382,6 +382,85 @@ void keepCentroidComponent(const std::unordered_map<int, cv::Point>& centroids,
     }
 }
 
+/**
+ *  attachPixelsToNearestZone
+ *  -------------------------
+ *  • occupancy   — CV_8UC1: 0 = свободно (чёрное), 255 = занято
+ *  • allZones    — список масок (255 = зона, 0 = фон) того же размера
+ *
+ *  Для каждого свободного пикселя находит ближайшую зону (по евклидовой
+ *  дистанции), добавляет пиксель в маску этой зоны и ставит 255 в occupancy.
+ *
+ *  @return сколько пикселей было присвоено
+ *
+ *  Сложность O(N_pix · N_zones), но с предрассчитанными картами расстояний
+ *  (cv::distanceTransform) работает заметно быстрее, чем прямой перебор
+ *  всех точек каждой зоны.
+ */
+std::size_t attachPixelsToNearestZone(cv::Mat1b&              occupancy,
+                                      std::vector<ZoneMask>&  allZones)
+{
+    CV_Assert(!occupancy.empty() && occupancy.type() == CV_8UC1);
+
+    const int rows = occupancy.rows, cols = occupancy.cols;
+    const int Z = static_cast<int>(allZones.size());
+
+    /* ── 1. Расстояние до каждой зоны (предрасчёт) ─────────────────── */
+    std::vector<cv::Mat1f> distMaps(Z);            // float32
+
+    for (int zi = 0; zi < Z; ++zi)
+    {
+        auto& z = allZones[zi];
+        CV_Assert(z.mask.size() == occupancy.size() && z.mask.type() == CV_8UC1);
+
+        cv::Mat1b invMask;
+        cv::bitwise_not(z.mask, invMask);          // зона → 0, остальное → 255
+
+        cv::distanceTransform(invMask,
+                              distMaps[zi],
+                              cv::DIST_L2,
+                              3);                  // 3×3 маска, L2-норма
+    }
+
+    /* ── 2. Проходим по свободным пикселям и ищем ближайшую зону ───── */
+    std::size_t attached = 0;
+
+    for (int y = 0; y < rows; ++y)
+    {
+        uchar* occRow = occupancy.ptr<uchar>(y);
+
+        for (int x = 0; x < cols; ++x)
+        {
+            if (occRow[x] != 0)                    // уже занято
+                continue;
+
+            /* — ищем минимальное расстояние — */
+            float bestDist = std::numeric_limits<float>::max();
+            int   bestIdx  = -1;
+
+            for (int zi = 0; zi < Z; ++zi)
+            {
+                float d = distMaps[zi].at<float>(y, x);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    bestIdx  = zi;
+                }
+            }
+
+            /* — присваиваем пиксель найденной зоне — */
+            if (bestIdx >= 0)
+            {
+                allZones[bestIdx].mask(y, x) = 255;  // добавить в зону
+                occRow[x]                    = 255;  // теперь занято
+                ++attached;
+            }
+        }
+    }
+
+    return attached;                                // кол-во обработанных пикселей
+}
+
 std::vector<ZoneMask>
 segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 = пусто
                            int   maxIter      = 40,
@@ -402,7 +481,6 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
 
     cv::Mat1b src255;
     srcBinary.convertTo(src255, CV_8U, 255);
-    showMat("src255 ", src255);
 
     for (int iter = 0; iter < maxIter && !todo.empty(); ++iter)
     {
@@ -477,12 +555,15 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
 
         eraseWallsFromZones(srcBinary, allZones);
 
+        std::size_t n = attachPixelsToNearestZone(occ, allZones);
+
         // после вычитания стен могут появиться отделенные части зон с обеих сторон стены.
         keepCentroidComponent(info.centroids, allZones, &occ); // Оставляем только части зон где лежит центроид
-
         int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
         std::cout << "Добавлено участков: " << added << '\n';
-        showMat("occ ", occ);
+
+
+//        showMat("occ ", occ);
         std::cerr << "[warn] maxIter reached, "
                   << todo.size() << " zones still not isolated: ";
 
@@ -567,7 +648,7 @@ int main(int argc, char** argv)
     }
     std::cout << "Loaded image: " << pgmFile << " (size: " << raw.cols << "x" << raw.rows << ")" << std::endl;
 
-    showMat("Raw Map", raw);
+//    showMat("Raw Map", raw);
 
     // Заполнение структуры MapInfo
     mapInfo.resolution = resolution;
@@ -583,39 +664,31 @@ int main(int argc, char** argv)
     cv::Mat aligned;
     MapPreprocessing::mapAlign(raw8u, aligned, segmenterConfig.alignmentConfig);
 
-    showMat("aligned Map", aligned);
+//    showMat("aligned Map", aligned);
 
     // Этап денойзинга.
     auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned, segmenterConfig.denoiseConfig);
 
-    showMat("Denoised Map", rank);
+//    showMat("Denoised Map", rank);
 
     // Расширенние черных зон(препятствия)
     cv::Mat1b binaryDilated = erodeBinary(rank, segmenterConfig.dilateConfig.kernelSize, segmenterConfig.dilateConfig.iterations);
 
 
+    cv::Mat1b wallMask;
+    cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);   // 255 там, где стена
+//    cv::Mat1b skeleton;
+//    cv::Mat sk8;
+//    cv::ximgproc::thinning(wallMask, skeleton, cv::ximgproc::THINNING_ZHANGSUEN);
+//    skeleton.convertTo(sk8, CV_8U, 255);
+//            std::cout << "skeleton non-zero = " << cv::countNonZero(skeleton) << std::endl;
+//    showMat("Skeleton", sk8);
 
+//    std::vector<cv::Point> ends;
+//    showMat("Skeleton + endpoints", visualizeSkeletonEndpoints(skeleton, &ends));
 
-
-
-
-            cv::Mat1b wallMask;
-            cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);   // 255 там, где стена
-    cv::Mat1b skeleton;
-    cv::Mat sk8;
-    cv::ximgproc::thinning(wallMask, skeleton, cv::ximgproc::THINNING_ZHANGSUEN);
-    skeleton.convertTo(sk8, CV_8U, 255);
-            std::cout << "skeleton non-zero = " << cv::countNonZero(skeleton) << std::endl;
-    showMat("Skeleton", sk8);
-
-    std::vector<cv::Point> ends;
-    showMat("Skeleton + endpoints", visualizeSkeletonEndpoints(skeleton, &ends));
-
-    cv::Mat1b endpointsMask = drawSkeletonEndpoints(skeleton, 3);
-    showMat("Endpoints mask", endpointsMask); // inflation radius
-
-
-
+//    cv::Mat1b endpointsMask = drawSkeletonEndpoints(skeleton, 3);
+//    showMat("Endpoints mask", endpointsMask); // inflation radius
 
 
     auto zones = segmentByGaussianThreshold(binaryDilated, 50, 0.5);

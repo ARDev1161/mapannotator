@@ -1,8 +1,41 @@
-#include "labelmapping.hpp"
+﻿#include "labelmapping.hpp"
 #include <set>
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
+
+int LabelMapping::addCornerCirclesHarris(cv::Mat1b &wallMask,
+                               int radius,
+                               uchar circleVal,
+                               int maxCorners,
+                               double harrisK,
+                               double quality,
+                               double minDist)
+{
+    CV_Assert(!wallMask.empty() && wallMask.type() == CV_8UC1);
+    CV_Assert(radius > 1);
+
+    // Shi–Tomasi (goodFeaturesToTrack) ищет углы.
+    std::vector<cv::Point2f> corners;
+    cv::goodFeaturesToTrack(wallMask,
+                            corners,
+                            maxCorners,
+                            quality,
+                            std::max<double>(minDist, radius),
+                            cv::noArray(),
+                            3,               // blockSize
+                            true,            // use Harris
+                            harrisK);
+
+    /* ---------- 3. Рисуем окружности прямо в wallMask ---------- */
+    int drawn = 0;
+    for (const auto &p : corners)
+    {
+        cv::circle(wallMask, p, radius, circleVal, -1, cv::LINE_AA); // -1 → заполненный круг
+        ++drawn;
+    }
+    return drawn;
+}
 
 cv::Mat LabelMapping::getLocalMax(const cv::Mat &dist)
 {
@@ -74,27 +107,30 @@ LabelsInfo LabelMapping::getSeeds(const cv::Mat &dist, int dilateIterations, int
 {
     cv::Mat labels, dilated;
 
-    showMat("Dist", dist);
+//    showMat("Dist", dist);
 
     labels = getLocalMax(dist);
-    showMat("Local Max", labels);
+//    showMat("Local Max", labels);
 
     dilated = dilateBinary(labels, dilateKernelSize, dilateIterations); // расширяем для слияния близкорасположенных локальных максимумов
-    showMat("Dilated", dilated);
+//    showMat("Dilated", dilated);
 
     LabelsInfo labelInfo = getCentroids(dilated); // получаем центры областей локальных максимумов
 
     return labelInfo;
 }
 
-LabelsInfo LabelMapping::computeLabels(const cv::Mat& binaryDilated, int backgroundErosionKernelSize)
+LabelsInfo LabelMapping::computeLabels(const cv::Mat1b& binaryDilated, int backgroundErosionKernelSize)
 {
     // Создаем маску фона (эрозия бинарной карты).
     cv::Mat kernel = cv::Mat::ones(backgroundErosionKernelSize, backgroundErosionKernelSize, CV_8U);
     cv::Mat eroded;
     cv::erode(binaryDilated, eroded, kernel);
-    cv::Mat backgroundMask = (eroded == 1);
+    cv::Mat1b backgroundMask = (eroded == 1);
     cv::dilate(binaryDilated, eroded, kernel);
+
+    // Находим углы и расширяем их чтобы повысить количество локальных максимумов если некоторые зоны не достаточно отделены
+    addCornerCirclesHarris(backgroundMask, 4);
 
     // Perform the distance transform algorithm
     cv::Mat dist;
