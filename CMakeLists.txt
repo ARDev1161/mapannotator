@@ -13,7 +13,6 @@ set(ZONEGRAPH_SRC
     mapgraph/zoneconfig.hpp
     mapgraph/zone_graph_dot.hpp mapgraph/zone_graph_draw.hpp
     mapgraph/typeregistry.h mapgraph/typeregistry.cpp
-    segmentation/zoneclassifier.h segmentation/zoneclassifier.cpp
 )
 
 set(PREPARING_SRC
@@ -23,14 +22,19 @@ set(PREPARING_SRC
 set(SEGMENTATION_SRC
     segmentation/endpoints.h
     segmentation/segmentation.hpp segmentation/segmentation.cpp
-#    segmentation/segmenter.hpp segmentation/segmenter.cpp
     segmentation/labelmapping.hpp segmentation/labelmapping.cpp
+    segmentation/zoneclassifier.h segmentation/zoneclassifier.cpp
+)
+
+set(PDDL_SRC
+    pddl/pddlgenerator.h pddl/pddlgenerator.cpp
 )
 
 add_executable(${PROJECT_NAME} main.cpp
                                ${ZONEGRAPH_SRC}
                                ${PREPARING_SRC}
                                ${SEGMENTATION_SRC}
+                               ${PDDL_SRC}
                                utils.hpp config.hpp)
 
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)

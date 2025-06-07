@@ -14,6 +14,7 @@
 #include "segmentation/labelmapping.hpp"
 #include "segmentation/endpoints.h"
 #include "segmentation/zoneclassifier.h"
+#include "pddl/pddlgenerator.h"
 #include "config.hpp"
 #include "utils.hpp"
 
@@ -88,7 +89,7 @@ buildZoneIndex(const std::vector<ZoneMask>& zones)
     return index;
 }
 
-void annotateGraph(ZoneGraph& graph, const std::string& rulefile)
+void annotateGraph(const ZoneGraph& graph, const std::string& rulefile)
 {
     static ZoneClassifier clf{rulefile};
 
@@ -98,7 +99,7 @@ void annotateGraph(ZoneGraph& graph, const std::string& rulefile)
         ZoneType     t = clf.classify(f);
 
         node->setType(t);                   // сохраните / подпишите узел
-        std::cout << "Zone #" << node->id()
+        std::cerr << "Zone #" << node->id()
                   << " → " << t.path() << '\n';
     }
 }
@@ -779,12 +780,28 @@ int main(int argc, char** argv)
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, labels.centroids);
 
+    PDDLGenerator gen(graph);
+    std::cerr << "\(define \(problem PROBLEM_NAME)\n"
+              << "  \(:domain DOMAIN_NAME)\n"
+              << gen.objects()
+              << gen.init("ROBOT_CUR_ZONE")
+              << gen.goal("ROBOT_GOAL_ZONE")
+              << ")\n";
+
+//    std::ofstream pddlOut("problem_auto.pddl");
+    //    out << "(define (problem demo)\n";
+    //    out << "  (:domain floorplan_navigation)\n";
+    //    out << gen.objects();
+    //    out << gen.init("zone_1");
+    //    out << gen.goal("zone_15");
+    //    out << ")\n";
+
     cv::Mat3b vis = colorizeSegmentation(segmentation, wallMask,
                     "Rooms colored",
                     "rooms.png",
                     cv::COLORMAP_JET);
 
-//    exampleZoneGraph();
+
 
     std::cout << "Press any key to exit..." << std::endl;
     cv::waitKey(0);

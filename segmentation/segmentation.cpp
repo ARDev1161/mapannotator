@@ -75,19 +75,37 @@ cv::Rect Segmentation::findBB(const cv::Mat& map) {
 }
 
 // Вычисляет информацию для единичного кадрирования.
-Segmentation::CropInfo Segmentation::cropSingleInfo(const cv::Mat& map, int padding) {
-    int width = map.cols;
-    int height = map.rows;
-    cv::Rect r = findBB(map);
-    int x1 = r.x;
-    int y1 = r.y;
-    int x2 = r.x + r.width;
-    int y2 = r.y + r.height;
+Segmentation::CropInfo Segmentation::cropSingleInfo(const cv::Mat& map, int padding)
+{
+    /* ---------- sanity-checks ------------------------------------------ */
+    if (map.empty())
+        throw std::invalid_argument("cropSingleInfo(): map is empty");
+
+    if (padding < 0)
+        throw std::invalid_argument("cropSingleInfo(): padding must be ≥ 0");
+
+    CV_Assert(map.type() == CV_8UC1 && "expecting single-channel map");
+
+    /* ---------- bounding box of non-zero pixels ------------------------ */
+    const cv::Rect bb = findBB(map);             // may return {0,0,0,0}
+    if (bb.width == 0 || bb.height == 0)
+        return {};                               // nothing to crop
+
+    const int width = map.cols;
+    const int height = map.rows;
+
+    /* ограничиваем padding, чтобы не выйти за границы */
+    const int maxPad = std::min({ bb.x,
+                                  bb.y,
+                                  width  - bb.x - bb.width,
+                                  height - bb.y - bb.height });
+    padding = std::min(padding, maxPad);
+
     CropInfo info;
-    info.left = std::max(x1 - padding, 0);
-    info.top = std::max(y1 - padding, 0);
-    info.right = std::min(width - x2 - padding, width);
-    info.bottom = std::min(height - y2 - padding, height);
+    info.left   = bb.x - padding;                           // ≥ 0
+    info.top    = bb.y - padding;                           // ≥ 0
+    info.right  = width  - (bb.x + bb.width)  - padding;    // ≥ 0
+    info.bottom = height - (bb.y + bb.height) - padding;    // ≥ 0
     return info;
 }
 

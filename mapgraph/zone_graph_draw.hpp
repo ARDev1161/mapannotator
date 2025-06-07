@@ -30,24 +30,39 @@ void drawZoneGraph(const GraphT& g,
                    bool   drawWidths   = false,
                    bool invertY = false)
 {
+    if (g.allNodes().empty()) {                 // ← 1. пустой граф
+        canvas = cv::Mat::zeros(200, 200, CV_8UC3);
+        cv::putText(canvas, "empty graph", {20,100},
+                    cv::FONT_HERSHEY_PLAIN, 1.2, {0,0,255}, 2);
+        return;
+    }
+
     int ySign = (invertY == true) ? -1 : 1;
 
-    /* вычислим границы ---------------------------------------------------- */
-    double minX=1e9, minY=1e9, maxX=-1e9, maxY=-1e9;
-    for (auto& n : g.allNodes())
-    {
+    /* ---------- bounding box ------------------------------------------ */
+    double minX =  1e9, minY =  1e9;
+    double maxX = -1e9, maxY = -1e9;
+    for (auto& n : g.allNodes()) {
         minX = std::min(minX, n->centroid().x);
         minY = std::min(minY, n->centroid().y);
         maxX = std::max(maxX, n->centroid().x);
         maxY = std::max(maxY, n->centroid().y);
     }
-    int w = static_cast<int>((maxX-minX)*scale) + 100;
-    int h = static_cast<int>((maxY-minY)*scale) + 100;
-    if (canvas.empty()) canvas = cv::Mat::zeros(h, w, CV_8UC3);
+
+    /* ---------- размеры холста ---------------------------------------- */
+    const int pad = 50;                                  // рамка
+    int w = static_cast<int>(std::ceil((maxX - minX) * scale)) + pad * 2;
+    int h = static_cast<int>(std::ceil((maxY - minY) * scale)) + pad * 2;
+
+    w = std::max(w, 100);                                // защитный минимум
+    h = std::max(h, 100);
+
+    if (canvas.empty())
+        canvas = cv::Mat::zeros(h, w, CV_8UC3);
 
     auto toPx = [&](const cv::Point2d& p){
-        return cv::Point( int((p.x - minX)*scale)+50,
-                          int((p.y - minY)*scale)+50 );
+        return cv::Point( int((p.x - minX) * scale) + pad,
+                          int((p.y - minY) * scale) * (invertY ? -1 : 1) + pad );
     };
 
     /* --- draw edges ------------------------------------------------------ */
