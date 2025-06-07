@@ -13,84 +13,145 @@
 #include "segmentation/segmentation.hpp"
 #include "segmentation/labelmapping.hpp"
 #include "segmentation/endpoints.h"
+#include "segmentation/zoneclassifier.h"
 #include "config.hpp"
 #include "utils.hpp"
 
 using namespace mapping;
 
-void exampleZoneGraph(){
-    ZoneGraph g;
+/**
+ * Создаёт таблицу смежности зон по одному изображению меток.
+ *
+ * @param zones             CV_32S: 0 = стены / фон, >0 = номер зоны
+ * @param use8Connectivity  true  → 8-связность (считаем диагонали),
+ *                           false → 4-связность (только ↑↓←→)
+ * @return unordered_map<label, vector<label-соседей>>
+ */
+std::unordered_map<int, std::vector<int>>
+buildZoneAdjacency(const cv::Mat1i& zones,
+                   bool use8Connectivity = false)
+{
+    CV_Assert(!zones.empty() && zones.type() == CV_32S);
+
+    const cv::Size sz = zones.size();
+
+    const std::vector<cv::Point> off4{{1,0},{0,1}};
+    const std::vector<cv::Point> off8{{1,0},{0,1},{1,1},{1,-1}};
+    const auto& offs = use8Connectivity ? off8 : off4;
+
+    std::unordered_map<int, std::unordered_set<int>> tmpAdj;
+
+    for (int y = 0; y < sz.height; ++y)
+    {
+        const int* row = zones.ptr<int>(y);
+        for (int x = 0; x < sz.width; ++x)
+        {
+            int lbl = row[x];
+            if (lbl <= 0) continue;                     // фон
+
+            for (const auto& d : offs)
+            {
+                int nx = x + d.x, ny = y + d.y;
+                if ((unsigned)nx >= (unsigned)sz.width ||
+                    (unsigned)ny >= (unsigned)sz.height) continue;
+
+                int nLbl = zones.at<int>(ny, nx);
+                if (nLbl <= 0 || nLbl == lbl) continue; // тот же или фон
+
+                tmpAdj[lbl].insert(nLbl);
+                tmpAdj[nLbl].insert(lbl);               // граф неориентированный
+            }
+        }
+    }
+
+    std::unordered_map<int, std::vector<int>> adjacency;
+    adjacency.reserve(tmpAdj.size());
+
+    for (auto& [lbl, set] : tmpAdj)
+    {
+        adjacency[lbl] = {set.begin(), set.end()};
+        std::sort(adjacency[lbl].begin(), adjacency[lbl].end());
+    }
+    return adjacency;
+}
+
+/** Строит индекс: label → указатель на mask */
+inline std::unordered_map<int, const cv::Mat1b*>
+buildZoneIndex(const std::vector<ZoneMask>& zones)
+{
+    std::unordered_map<int, const cv::Mat1b*> index;
+    index.reserve(zones.size());
+
+    for (const auto& z : zones)
+        index.emplace(z.label, &z.mask);
+
+    return index;
+}
+
+void annotateGraph(ZoneGraph& graph, const std::string& rulefile)
+{
+    static ZoneClassifier clf{rulefile};
+
+    for (auto& node : graph.allNodes())        // итератор по узлам
+    {
+        ZoneFeatures f = node->features();  // ваш метод получения признаков
+        ZoneType     t = clf.classify(f);
+
+        node->setType(t);                   // сохраните / подпишите узел
+        std::cout << "Zone #" << node->id()
+                  << " → " << t.path() << '\n';
+    }
+}
+
+void buildGraph(ZoneGraph& graphOut, std::vector<ZoneMask> zones, cv::Mat1i zonesMat, std::unordered_map<int, cv::Point> centroids) {
+
     std::unordered_map<ZoneType, NodePtr> node;   // для удобства соединений
 
-    auto add = [&](ZoneType t, Point2d c)
+    auto add = [&](ZoneId id, ZoneType t, cv::Point2d c, double area, double perimeter)
     {
-        double area = 12.0;                           // фиктивные метрики
-        double per  = 14.0;
-        node[t] = g.addNode(t, area, per, c,
+        node[t] = graphOut.addNode(id, t, area, perimeter, c,
                             {{{c.x-0.5,c.y-0.5},{c.x+0.5,c.y-0.5},
                               {c.x+0.5,c.y+0.5},{c.x-0.5,c.y+0.5}}});
     };
 
-    /* --- размещаем вершины (координаты в «метрах») ---------------------- */
-    add(ZoneType::HallVestibule,           { 0,  0});
-    add(ZoneType::DoorArea,                { 1,  2});
-    add(ZoneType::Corridor,                { 3,  2});
-    add(ZoneType::AtriumLobby,             { 6,  0});
-    add(ZoneType::Staircase,               { 6, -3});
-    add(ZoneType::ElevatorZone,            { 8, -3});
-    add(ZoneType::LivingRoomOfficeBedroom, { 0,  5});
-    add(ZoneType::Kitchenette,             { 3,  5});
-    add(ZoneType::Sanitary,                { 6,  5});
-    add(ZoneType::NarrowConnector,         { 5,  2});
-    add(ZoneType::StorageUtility,          { 7,  2});
-    add(ZoneType::Unknown,                 {-2,  2});
-
-    /* --- рёбра с реалистичными ширинами --------------------------------- */
     auto W = [](double m){ return m; };        // удобный alias
 
-    g.connectZones(node[ZoneType::HallVestibule]->id(),
-                   node[ZoneType::DoorArea]->id(), W(1.4));
+    std::unordered_map<int, std::vector<int>> zoneGraph =
+            buildZoneAdjacency(zonesMat, /*use8Connectivity=*/true); // Таблица смежности графа
 
-    g.connectZones(node[ZoneType::DoorArea]->id(),
-                   node[ZoneType::Corridor]->id(), W(1.2));
+    // Assume map resolution is 5 cm per pixel ⇒ area per pixel = 0.05 × 0.05 m².
+    constexpr double kAreaPerPixel = 0.05 * 0.05;
 
-    g.connectZones(node[ZoneType::AtriumLobby]->id(),
-                   node[ZoneType::Corridor]->id(), W(2.0));
+    auto zoneIndex = buildZoneIndex(zones);
 
-    g.connectZones(node[ZoneType::AtriumLobby]->id(),
-                   node[ZoneType::Staircase]->id(), W(1.6));
+    // Создаем ноды графа
+    for(auto centroid: centroids){
 
-    g.connectZones(node[ZoneType::AtriumLobby]->id(),
-                   node[ZoneType::ElevatorZone]->id(), W(1.6));
+        // размещаем вершины (координаты в «метрах»)
+        add(centroid.first,
+            ZoneType{},
+            pixelToWorld(centroid.second, mapInfo),
+            computeWhiteArea(zoneIndex[centroid.first], kAreaPerPixel),
+                10);
 
-    /* комнаты выходят в коридор через двери */
-    g.connectZones(node[ZoneType::Corridor]->id(),
-                   node[ZoneType::LivingRoomOfficeBedroom]->id(), W(1.0));
+        // строим рёбра
+        std::cerr << "Zone " << std::to_string(centroid.first) << centroid.second << " neighbours:";
+        for(auto neighbour: zoneGraph[centroid.first]){
+            std::cerr << ' ' << neighbour;
+            graphOut.connectZones(centroid.first, neighbour, W(1.4));
+        }
+        std::cerr << '\n';
+    }
 
-    g.connectZones(node[ZoneType::Corridor]->id(),
-                   node[ZoneType::Kitchenette]->id(), W(0.9));
-
-    g.connectZones(node[ZoneType::Corridor]->id(),
-                   node[ZoneType::Sanitary]->id(), W(0.8));
-
-    /* узкий проход к кладовой */
-    g.connectZones(node[ZoneType::Corridor]->id(),
-                   node[ZoneType::NarrowConnector]->id(), W(0.6));
-
-    g.connectZones(node[ZoneType::NarrowConnector]->id(),
-                   node[ZoneType::StorageUtility]->id(), W(0.8));
-
-    /* неизвестная зона примыкает к коридору */
-    g.connectZones(node[ZoneType::Unknown]->id(),
-                   node[ZoneType::Corridor]->id(), W(1.0));
+    annotateGraph(graphOut, "../mapannotator/config/rules.yaml");
 
     /* ---------- DOT‑файл ----------------------------------------------- */
     std::ofstream dot("graph.dot");
-    writeDot(g, dot);
+    writeDot(graphOut, dot);
 
     /* ---------- Быстрый предварительный просмотр (OpenCV) -------------- */
     cv::Mat img;
-    drawZoneGraph(g, img, 50.0 /*px/м*/, 7 /*радиус*/, true /*подписи ширины*/);
+    drawZoneGraph(graphOut, img, 50.0 /*px/м*/, 7 /*радиус*/, true /*подписи ширины*/);
     showMat("Floor‑Plan Graph", img);
     cv::imwrite("graph_preview.png", img);
 }
@@ -463,6 +524,7 @@ std::size_t attachPixelsToNearestZone(cv::Mat1b&              occupancy,
 
 std::vector<ZoneMask>
 segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 = пусто
+                           LabelsInfo& labelsOut,
                            int   maxIter      = 40,
                            double sigmaStep   = 0.25,     // приращение σ на итерацию
                            double    threshold   = 0.5)     // T для THRESH_BINARY
@@ -470,9 +532,9 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
     CV_Assert(!srcBinary.empty() && srcBinary.type() == CV_8UC1);
 
     /* 0.  центроиды свободных областей исходной карты --------------------- */
-    auto info = LabelMapping::computeLabels(srcBinary, /*invert=*/false);
+    labelsOut = LabelMapping::computeLabels(srcBinary, /*invert=*/false);
 
-    std::unordered_map<int, cv::Point> todo = info.centroids; // ещё не изолированы
+    std::unordered_map<int, cv::Point> todo = labelsOut.centroids; // ещё не изолированы
     std::vector<ZoneMask> allZones;                           // результат
 
     cv::Mat blurred, bin;
@@ -558,7 +620,7 @@ segmentByGaussianThreshold(const cv::Mat1b& srcBinary,   // 0 = стены, 255 
         std::size_t n = attachPixelsToNearestZone(occ, allZones);
 
         // после вычитания стен могут появиться отделенные части зон с обеих сторон стены.
-        keepCentroidComponent(info.centroids, allZones, &occ); // Оставляем только части зон где лежит центроид
+        keepCentroidComponent(labelsOut.centroids, allZones, &occ); // Оставляем только части зон где лежит центроид
         int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
         std::cout << "Добавлено участков: " << added << '\n';
 
@@ -690,8 +752,8 @@ int main(int argc, char** argv)
 //    cv::Mat1b endpointsMask = drawSkeletonEndpoints(skeleton, 3);
 //    showMat("Endpoints mask", endpointsMask); // inflation radius
 
-
-    auto zones = segmentByGaussianThreshold(binaryDilated, 50, 0.5);
+    LabelsInfo labels;
+    auto zones = segmentByGaussianThreshold(binaryDilated, labels, 50, 0.5);
 
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
             int iter = 0;
@@ -699,17 +761,30 @@ int main(int argc, char** argv)
 
         cv::Mat1b seg8u;
         z.mask.convertTo(seg8u, CV_8U, 255);       // CV_8U для applyColorMap
-//        showMat("Zone №" + std::to_string(iter++), seg8u);
+        showMat("Zone №" + std::to_string(z.label), seg8u);
 
         segmentation.setTo(z.label, z.mask);
     }
+
+    cv::Mat1i  seg = segmentation;                     // ваша сегментация (0 = стены)
+    double minVal, maxVal;
+    cv::minMaxLoc(seg, &minVal, &maxVal);     // нужен maxVal ≥ 1
+    cv::Mat1b gray8;
+    seg.convertTo(gray8, CV_8U,
+                  maxVal ? 255.0 / maxVal : 1.0,   // α (scale)
+                  0);                              // β (shift)
+
+    cv::imshow("Segmentation", gray8);
+
+    ZoneGraph graph;
+    buildGraph(graph, zones, segmentation, labels.centroids);
 
     cv::Mat3b vis = colorizeSegmentation(segmentation, wallMask,
                     "Rooms colored",
                     "rooms.png",
                     cv::COLORMAP_JET);
 
-    exampleZoneGraph();
+//    exampleZoneGraph();
 
     std::cout << "Press any key to exit..." << std::endl;
     cv::waitKey(0);

@@ -257,6 +257,30 @@ static std::string matTypeStr(int t)
     return oss.str();
 }
 
+/**
+ * @brief Computes the real-world area represented by white pixels in a binary mask.
+ *
+ * @param mask           Binary image (type CV_8UC1). Pixels that contribute to the area
+ *                       must be exactly 255; everything else (0) is ignored.
+ * @param m2_per_pixel   Conversion factor: physical area (m²) represented by each pixel.
+ *                       For example, if the map resolution is 0.05 m × 0.05 m, pass
+ *                       0.05 * 0.05 = 0.0025.
+ * @return               Area in square metres.
+ */
+inline double computeWhiteArea(const cv::Mat1b * mask, double m2_per_pixel)
+{
+    if(!mask)
+        return 0.0;
+
+    CV_Assert(!mask->empty() && mask->type() == CV_8UC1);
+    CV_Assert(m2_per_pixel > 0.0);
+
+    // Fast, vectorised popcount of non-zero elements (each non-zero byte is treated as 1)
+    const int whitePixelCount = cv::countNonZero(*mask);
+
+    return whitePixelCount * m2_per_pixel;
+}
+
 /*-------------------------------------------------------------------------*/
 /*  проверка совместимости                                                 */
 /*-------------------------------------------------------------------------*/

@@ -14,8 +14,8 @@ ZoneNode::ZoneNode(ZoneId id,
                    ZoneType type,
                    double area,
                    double perimeter,
-                   Point2d centroid,
-                   std::vector<std::vector<Point2d>> contours,
+                   cv::Point2d centroid,
+                   std::vector<std::vector<cv::Point2d>> contours,
                    std::optional<AABB> bbox,
                    std::string label)
     : id_{id}
@@ -68,19 +68,57 @@ void ZoneNode::removePassageTo(const NodePtr& neighbour, double width_m)
                 return p.widths_m.empty();
 
             }),
-        passages_.end());
+            passages_.end());
+}
+
+ZoneFeatures ZoneNode::features() const noexcept
+{
+    ZoneFeatures f;
+    f.A  = area_;
+    f.P  = perimeter_;
+    f.C  = (perimeter_ > 1e-6)
+          ? (4.0 * M_PI * area_) / (perimeter_ * perimeter_)
+          : 0.0;
+
+    /* AR вычисляем по bbox, если он есть */
+    if (bbox_)
+    {
+        double w = bbox_->width();
+        double h = bbox_->height();
+        f.AR = (h > 1e-6) ? std::max(w, h) / std::min(w, h) : 1.0;
+    }
+    else
+        f.AR = 1.0;
+
+    f.N = static_cast<int>(passages_.size());
+
+    /* ширины проходов */
+    double sum = 0.0, minw = std::numeric_limits<double>::max();
+    int    cnt = 0;
+    for (const auto& pas : passages_) {
+        for (double w : pas.widths_m) {
+            sum  += w;
+            minw = std::min(minw, w);
+            ++cnt;
+        }
+    }
+    f.w_avg = cnt ? sum / cnt : 0.0;
+    f.w_min = cnt ? minw      : 0.0;
+
+    return f;
 }
 
 /* ===== ZoneGraph ========================================================== */
-NodePtr ZoneGraph::addNode(ZoneType type,
+NodePtr ZoneGraph::addNode(ZoneId id,
+                           ZoneType type,
                            double area,
                            double perimeter,
-                           Point2d centroid,
-                           std::vector<std::vector<Point2d>> contours,
+                           cv::Point2d centroid,
+                           std::vector<std::vector<cv::Point2d>> contours,
                            std::optional<AABB> bbox,
                            std::string label)
 {
-    auto node = std::make_shared<ZoneNode>(nextId_++, type, area, perimeter,
+    auto node = std::make_shared<ZoneNode>(id, type, area, perimeter,
                                            centroid, std::move(contours),
                                            std::move(bbox), std::move(label));
     nodes_.emplace(node->id(), node);

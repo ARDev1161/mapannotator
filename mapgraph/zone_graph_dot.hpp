@@ -17,25 +17,6 @@
 
 namespace mapping {
 
-/* --- string helpers ------------------------------------------------------ */
-inline std::string zoneTypeName(ZoneType t)
-{
-    switch (t)
-    {
-        case ZoneType::Corridor:                  return "Corridor";
-        case ZoneType::NarrowConnector:           return "NarrowConnector";
-        case ZoneType::DoorArea:                  return "DoorArea";
-        case ZoneType::LivingRoomOfficeBedroom:   return "LivingRoom/Office";
-        case ZoneType::StorageUtility:            return "Storage";
-        case ZoneType::Sanitary:                  return "Sanitary";
-        case ZoneType::Kitchenette:               return "Kitchenette";
-        case ZoneType::HallVestibule:             return "Hall";
-        case ZoneType::AtriumLobby:               return "Atrium";
-        case ZoneType::Staircase:                 return "Staircase";
-        case ZoneType::ElevatorZone:              return "Elevator";
-        default:                                  return "Unknown";
-    }
-}
 
 /* --- main writer --------------------------------------------------------- */
 template<typename GraphT = IZoneGraph>
@@ -49,7 +30,7 @@ void writeDot(const GraphT& g, std::ostream& os, bool withWidths = true)
     {
         os << "  " << n->id()
            << " [label=\"" << n->id() << "\\n"
-           << zoneTypeName(n->type()) << "\\n"
+           << n->type().info->path << "\\n"
            << std::fixed << std::setprecision(1)
            << n->area() << "m2\"];\n";
     }

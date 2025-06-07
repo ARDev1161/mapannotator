@@ -1,0 +1,145 @@
+# ─────────── zones.yaml ────────────────────────────────────────────────
+types:
+  Passage:            # ─ Major ────────────────────────────────────────
+    id: 1
+    color: [200,200,255]
+    children:
+      Corridor:
+        id: 101
+        color: [200,200,255]
+      NarrowConnector:
+        id: 102
+        color: [180,180,255]
+      DoorArea:
+        id: 103
+        color: [150,150,255]
+
+  Room:               # ─ Major ────────────────────────────────────────
+    id: 2
+    color: [200,255,200]
+    children:
+      LivingSpaceBedroomOffice:
+        id: 201
+        color: [200,255,200]
+      StorageUtility:
+        id: 202
+        color: [200,220,255]
+      Sanitary:
+        id: 203
+        color: [220,240,255]
+      Kitchenette:
+        id: 204
+        color: [200,255,240]
+
+  OpenSpace:          # ─ Major ────────────────────────────────────────
+    id: 3
+    color: [255,255,200]
+    children:
+      HallVestibule:
+        id: 301
+        color: [255,255,200]
+      AtriumLobby:
+        id: 302
+        color: [255,240,180]
+
+  Transitional:       # ─ Major ────────────────────────────────────────
+    id: 4
+    color: [230,200,255]
+    children:
+      Staircase:
+        id: 401
+        color: [230,200,255]
+      ElevatorZone:
+        id: 402
+        color: [230,200,255]
+
+  Unknown:            # ─ always present fallback ──────────────────────
+    id: 0
+    color: [240,240,240]
+
+# ─────────── rule set ─────────────────────────────────────────────────
+rules:
+  #──── Passage ────────────────────────────────────────────────────────
+  - name: CorridorRule
+    priority: 100
+    type: "Passage.Corridor"
+    expr:  "AR >= 3 and C < 0.25 and N >= 2"
+
+  - name: NarrowConnectorRule
+    priority: 95
+    type: "Passage.NarrowConnector"
+    expr:  "CorridorRule and w_avg < 2"
+
+  - name: DoorAreaRule
+    priority: 90
+    type: "Passage.DoorArea"
+    expr:  "A <= 4 and N <= 2 and w_min <= 1.2"
+
+  - name: PassageGeneric
+    priority: 80
+    type: "Passage"
+    expr:  "AR >= 2"           # любой вытянутый, но не подходящий выше
+
+  #──── Room ───────────────────────────────────────────────────────────
+  - name: LivingSpaceRule
+    priority: 70
+    type: "Room.LivingSpaceBedroomOffice"
+    expr: "A >= 10 and A <= 60 and C >= 0.5 and N <= 3"
+
+  - name: StorageRule
+    priority: 65
+    type: "Room.StorageUtility"
+    expr: "A < 10 and N <= 1"
+
+  - name: SanitaryRule
+    priority: 60
+    type: "Room.Sanitary"
+    expr: "A >= 2 and A <= 8 and N <= 2"
+
+  - name: KitchenetteRule
+    priority: 55
+    type: "Room.Kitchenette"
+    expr: "A >= 4 and A <= 12 and C <= 0.75 and N <= 3"
+
+  - name: RoomGeneric
+    priority: 50
+    type: "Room"
+    expr: "A > 8 and AR < 2"
+
+  #──── Open space ─────────────────────────────────────────────────────
+  - name: HallRule
+    priority: 45
+    type: "OpenSpace.HallVestibule"
+    expr: "A >= 20 and A <= 100 and N >= 3"
+
+  - name: AtriumRule
+    priority: 40
+    type: "OpenSpace.AtriumLobby"
+    expr: "A > 100 and N >= 4"
+
+  - name: OpenGeneric
+    priority: 35
+    type: "OpenSpace"
+    expr: "A >= 20 and N >= 3"
+
+  #──── Transitional ───────────────────────────────────────────────────
+  - name: StaircaseRule
+    priority: 30
+    type: "Transitional.Staircase"
+    expr: "A <= 50 and AR >= 1.5 and AR <= 3 and N >= 2"
+
+  - name: ElevatorRule
+    priority: 25
+    type: "Transitional.ElevatorZone"
+    expr: "A >= 2 and A <= 6 and N <= 2"
+
+  - name: TransitionalGeneric
+    priority: 20
+    type: "Transitional"
+    expr: "A <= 50 and N >= 2"
+
+  #──── Fallback ───────────────────────────────────────────────────────
+  - name: UnknownRule
+    priority: 1
+    type: "Unknown"
+    expr: "true"      # всегда последний, всегда истинный

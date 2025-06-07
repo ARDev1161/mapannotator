@@ -12,6 +12,8 @@ set(ZONEGRAPH_SRC
     mapgraph/zonegraph.hpp mapgraph/zonegraph.cpp
     mapgraph/zoneconfig.hpp
     mapgraph/zone_graph_dot.hpp mapgraph/zone_graph_draw.hpp
+    mapgraph/typeregistry.h mapgraph/typeregistry.cpp
+    segmentation/zoneclassifier.h segmentation/zoneclassifier.cpp
 )
 
 set(PREPARING_SRC
