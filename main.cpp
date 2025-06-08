@@ -89,7 +89,7 @@ buildZoneIndex(const std::vector<ZoneMask>& zones)
     return index;
 }
 
-void annotateGraph(const ZoneGraph& graph, const std::string& rulefile)
+void annotateGraph(ZoneGraph& graph, const std::string& rulefile)
 {
     static ZoneClassifier clf{rulefile};
 
