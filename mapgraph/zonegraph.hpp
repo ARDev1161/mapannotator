@@ -18,18 +18,24 @@
 namespace mapping {
 
 /* ---------- basic geometry ------------------------------------------------ */
-struct AABB   // axis‑aligned bounding box
+/**
+ * @brief Axis-aligned bounding box helper.
+ */
+struct AABB
 {
-    cv::Point2d min;   // левый-нижний угол (или левый-верхний — важно лишь согласованность)
-    cv::Point2d max;   // правый-верхний угол
+    cv::Point2d min;   ///< bottom-left (or top-left) corner
+    cv::Point2d max;   ///< top-right corner
 
+    /** Check whether a point lies inside the box. */
     [[nodiscard]] bool contains(const cv::Point2d& p) const noexcept
     {
         return p.x >= min.x && p.x <= max.x &&
                p.y >= min.y && p.y <= max.y;
     }
 
+    /** Width of the box. */
     [[nodiscard]] double width () const noexcept { return max.x - min.x; }
+    /** Height of the box. */
     [[nodiscard]] double height() const noexcept { return max.y - min.y; }
 };
 
@@ -41,13 +47,19 @@ using NodePtr     = std::shared_ptr<ZoneNode>;
 using WeakNodePtr = std::weak_ptr<ZoneNode>;
 
 /* ---------- passage descriptor -------------------------------------------- */
+/**
+ * @brief Connection information between neighbouring zones.
+ */
 struct Passage
 {
     WeakNodePtr          neighbour;  ///< target zone (weak to break cycles)
-    std::vector<double>  widths_m;   ///< several doorways possible
+    std::vector<double>  widths_m;   ///< one zone may have multiple doorway widths
 };
 
 /* ---------- node interface ------------------------------------------------ */
+/**
+ * @brief Abstract interface for a zone node in the graph.
+ */
 class IZoneNode
 {
 public:
@@ -91,6 +103,9 @@ public:
 };
 
 /* ---------- concrete node -------------------------------------------------- */
+/**
+ * @brief Concrete implementation of IZoneNode used by ZoneGraph.
+ */
 class ZoneNode final : public IZoneNode,
                        public std::enable_shared_from_this<ZoneNode>
 {
@@ -123,18 +138,21 @@ public:
     /* упаковываем все числовые признаки в одну структуру */
     ZoneFeatures features() const noexcept;
 private:
-    ZoneId                                   id_{0};
-    ZoneType                                 type_{ZoneType{}};
-    double                                   area_{0.0};
-    double                                   perimeter_{0.0};
-    cv::Point2d                                  centroid_{};
-    std::vector<std::vector<cv::Point2d>>        contours_;
-    std::optional<AABB>                      bbox_;
-    std::string                              label_;
-    std::vector<Passage>                     passages_;
+    ZoneId                                   id_{0};        ///< unique node id
+    ZoneType                                 type_{ZoneType{}}; ///< semantic type
+    double                                   area_{0.0};    ///< area in m²
+    double                                   perimeter_{0.0}; ///< perimeter length
+    cv::Point2d                              centroid_{};   ///< centroid in map coordinates
+    std::vector<std::vector<cv::Point2d>>    contours_;     ///< polygonal contours
+    std::optional<AABB>                      bbox_;         ///< optional bounding box
+    std::string                              label_;        ///< custom textual label
+    std::vector<Passage>                     passages_;     ///< connections to neighbours
 };
 
 /* ---------- concrete graph ------------------------------------------------- */
+/**
+ * @brief Concrete graph implementation storing ZoneNode objects.
+ */
 class ZoneGraph final : public IZoneGraph
 {
 public:
@@ -156,8 +174,10 @@ public:
     std::vector<NodePtr>    allNodes()          const override;
 
 private:
+    /** Helper for comparing floating point numbers. */
     static bool equalDouble(double a, double b, double eps = 1e-5);
 
+    /** Storage of all nodes by their id. */
     std::unordered_map<ZoneId, NodePtr>      nodes_;
 };
 

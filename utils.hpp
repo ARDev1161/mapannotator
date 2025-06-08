@@ -6,36 +6,36 @@
 #include <filesystem>
 #include <opencv2/opencv.hpp>
 
+/** Basic parameters describing the map. */
 static struct MapInfo{
-    double resolution;
-    double originX;
-    double originY;
-    double theta;
-    int height;
-    int width;
+    double resolution; ///< map resolution in metres per pixel
+    double originX;    ///< world X coordinate of map origin
+    double originY;    ///< world Y coordinate of map origin
+    double theta;      ///< map rotation relative to world frame
+    int height;        ///< image height in pixels
+    int width;         ///< image width in pixels
 } mapInfo;
 
-// Функция для преобразования координат из пикселя в реальные координаты.
-// Параметры:
-// - pixel: координата в пикселях (изображение имеет начало координат в верхнем левом угле)
-// - resolution: размер одного пикселя в метрах
-// - origin: вектор из трёх значений [origin_x, origin_y, origin_theta],
-//           где (origin_x, origin_y) – мировые координаты нижнего левого угла карты,
-//           а origin_theta – угол поворота (в радианах)
-// - image_height: высота изображения (в пикселях), чтобы правильно инвертировать ось Y
+/**
+ * Convert pixel coordinates to world coordinates.
+ *
+ * @param pixel         Input pixel position (origin at top-left of the image).
+ * @param mapParams     Map information containing resolution and origin.
+ * @return              Point in world coordinates.
+ */
 static cv::Point2d pixelToWorld(const cv::Point2d & pixel, const MapInfo & mapParams) {
-    // Перевод пиксельных координат в координаты карты (относительно нижнего левого угла)
-    // Добавляем 0.5 для получения центра пикселя
+    // Translate pixel coordinates to map coordinates (origin at bottom-left);
+    // add 0.5 to obtain the pixel centre.
     double x_map = (pixel.x + 0.5) * mapParams.resolution;
     double y_map = ((mapParams.height - pixel.y) - 0.5) * mapParams.resolution;
 
-    // Применяем поворот: учитываем, что карта может быть повернута относительно мировых координат
+    // Apply rotation if the map is rotated relative to world coordinates.
     double world_x = mapParams.originX + x_map * cos(mapParams.theta) - y_map * sin(mapParams.theta);
     double world_y = mapParams.originY + x_map * sin(mapParams.theta) + y_map * cos(mapParams.theta);
     return cv::Point2d(world_x, world_y);
 }
 
-// Загрузка карты в формате uint8 (BGR).
+/// Load map from file as an 8-bit BGR image.
 static cv::Mat loadMapFromFileUint8(const std::filesystem::path& path) {
     cv::Mat img = cv::imread(path.string(), cv::IMREAD_COLOR);
     if (img.empty()) {
@@ -44,7 +44,7 @@ static cv::Mat loadMapFromFileUint8(const std::filesystem::path& path) {
     return img;
 }
 
-// Загрузка карты в формате float32 с масштабированием [0,1].
+/// Load map from file as float32 image scaled to [0,1].
 static cv::Mat loadMapFromFile(const std::filesystem::path& path) {
     cv::Mat img = cv::imread(path.string(), cv::IMREAD_COLOR);
     if (img.empty()) {
@@ -55,7 +55,7 @@ static cv::Mat loadMapFromFile(const std::filesystem::path& path) {
     return imgFloat;
 }
 
-// Загрузка карты из буфера.
+/// Load map image from an in-memory buffer.
 static cv::Mat loadMapFromBuffer(const std::vector<uchar>& buffer) {
     cv::Mat img = cv::imdecode(buffer, cv::IMREAD_COLOR);
     if (img.empty()) {
@@ -66,26 +66,26 @@ static cv::Mat loadMapFromBuffer(const std::vector<uchar>& buffer) {
     return imgFloat;
 }
 
-// Преобразование 3-канального изображения в градационное (grayscale).
+/// Convert a 3-channel image to grayscale.
 static cv::Mat makeGray(const cv::Mat& src) {
     cv::Mat gray;
     cv::cvtColor(src, gray, cv::COLOR_BGR2GRAY);
     return gray;
 }
 
-// Загрузка градационного изображения из файла.
+/// Load grayscale image from file.
 static cv::Mat loadGrayMapFromFile(const std::filesystem::path& path) {
     cv::Mat img = loadMapFromFile(path);
     return makeGray(img);
 }
 
-// Загрузка градационного изображения из буфера.
+/// Load grayscale image from buffer.
 static cv::Mat loadGrayMapFromBuffer(const std::vector<uchar>& buffer) {
     cv::Mat img = loadMapFromBuffer(buffer);
     return makeGray(img);
 }
 
-// Инвертирование изображения.
+/// Invert an image.
 static cv::Mat makeInvert(const cv::Mat& src) {
     cv::Mat result;
     if (src.type() == CV_8U) {
@@ -99,14 +99,14 @@ static cv::Mat makeInvert(const cv::Mat& src) {
     }
 }
 
-// Бинаризация изображения с порогом.
+/// Threshold image to binary.
 static cv::Mat makeBinary(const cv::Mat& src, double threshold, double maxValue = 1.0) {
     cv::Mat binary;
     cv::threshold(src, binary, threshold, maxValue, cv::THRESH_BINARY);
     return binary;
 }
 
-// Дилатация бинарного изображения.
+/// Dilate a binary image.
 static cv::Mat dilateBinary(const cv::Mat& src, int kernel_size = 3, int iterations = 1) {
     CV_Assert(src.depth() == CV_8U ||
               src.depth() == CV_16U ||
@@ -119,7 +119,7 @@ static cv::Mat dilateBinary(const cv::Mat& src, int kernel_size = 3, int iterati
     return result;
 }
 
-// Эрозия бинарного изображения.
+/// Erode a binary image.
 static cv::Mat erodeBinary(const cv::Mat& src, int kernel_size = 3, int iterations = 1) {
     CV_Assert(src.depth() == CV_8U ||
               src.depth() == CV_16U ||
@@ -132,7 +132,7 @@ static cv::Mat erodeBinary(const cv::Mat& src, int kernel_size = 3, int iteratio
     return result;
 }
 
-// Функция для вычисления kernel size по sigma: обычно используется правило 2*ceil(3*sigma)+1
+/// Compute kernel size from sigma using 2*ceil(3*sigma)+1.
 static int getKernelSize(double sigma) {
     return static_cast<int>(2 * std::ceil(3 * sigma) + 1);
 }
@@ -158,11 +158,11 @@ static std::string type2str(int type) {
 }
 
 /**
- *  Конвертирует произвольный cv::Mat -> CV_8U, 1 или 3 канала.
+ * Convert an arbitrary cv::Mat to CV_8U with one or three channels.
  *
- *  @param  src             любая матрица (глубина 8/16/32, 1–4 канала)
- *  @param  applyColorMap   true  => к 1‑канальному применяем COLORMAP_JET
- *  @param  dst             результат, которым можно сразу imshow(...)
+ * @param src           any matrix (8/16/32 bit depth, 1-4 channels)
+ * @param applyColorMap if true and the source has one channel, COLORMAP_JET is applied
+ * @param dst           output ready for imshow
  */
 static inline bool toDisplayable(const cv::Mat& src,
                           cv::Mat&       dst,

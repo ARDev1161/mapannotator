@@ -19,6 +19,14 @@ namespace mapping {
 
 
 /* --- main writer --------------------------------------------------------- */
+/**
+ * @brief Serialise a ZoneGraph into Graphviz DOT format.
+ *
+ * @tparam GraphT  Graph type implementing the IZoneGraph interface.
+ * @param g        Graph instance to serialise.
+ * @param os       Output stream.
+ * @param withWidths If true, passage widths are added as edge labels.
+ */
 template<typename GraphT = IZoneGraph>
 void writeDot(const GraphT& g, std::ostream& os, bool withWidths = true)
 {

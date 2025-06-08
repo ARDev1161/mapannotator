@@ -2,96 +2,96 @@
 #include <string>
 #include <vector>
 
-    // Конфигурация для Canny.
+    /** Configuration for the Canny edge detector. */
     struct CannyConfig {
-        double lowThreshold = 100;
-        double highThreshold = 150;
-        int apertureSize = 3;
-        bool L2gradient = false;
+        double lowThreshold = 100; ///< lower hysteresis threshold
+        double highThreshold = 150; ///< upper hysteresis threshold
+        int apertureSize = 3; ///< Sobel aperture size
+        bool L2gradient = false; ///< use more accurate L2 norm
     };
 
-    // Конфигурация для вероятностного преобразования Хафа.
+    /** Configuration for the probabilistic Hough transform. */
     struct HoughConfig {
-        double rho = 1;
-        double theta = 0.01745; // в радианах (например, CV_PI/180)
-        int threshold = 50;
-        double minLineLength = 50;
-        double maxLineGap = 10;
+        double rho = 1;                  ///< distance resolution of the accumulator
+        double theta = 0.01745;          ///< angle resolution in radians (e.g. CV_PI/180)
+        int threshold = 50;              ///< accumulator threshold
+        double minLineLength = 50;       ///< minimum line length
+        double maxLineGap = 10;          ///< maximum allowed gap between points
     };
 
-    // Конфигурация для вычисления гистограммы углов.
+    /** Parameters for computing the angle histogram. */
     struct HistogramConfig {
-        int resolution = 90;      // количество бинов гистограммы
-        int windowHalfSize = 2;  // половина окна для скользящего среднего
+        int resolution = 90;      ///< number of histogram bins
+        int windowHalfSize = 2;   ///< half window size for moving average
     };
 
-    // Конфигурация для полного пайплайна выравнивания.
-    // Предполагается, что предварительная обработка (бинаризация, crop и т.д.) производится вне класса.
+    /**
+     * Configuration for the alignment pipeline. Preprocessing (binarisation,
+     * cropping, etc.) is expected to be done outside of this class.
+     */
     struct AlignmentConfig {
-        bool enable = true;  // выполнять ли выравнивание
-        CannyConfig cannyConfig;
-        HoughConfig houghConfig;
-        HistogramConfig histogramConfig;
+        bool enable = true;          ///< enable alignment stage
+        CannyConfig cannyConfig;     ///< parameters for Canny
+        HoughConfig houghConfig;     ///< parameters for Hough transform
+        HistogramConfig histogramConfig; ///< histogram parameters
     };
 
-    // Конфигурация для этапа денойзинга (generate_denoised_alone).
+    /** Configuration for the denoising stage (generate_denoised_alone). */
     struct DenoiseConfig {
-        double binaryForCropThreshold = 0.2;
-        int cropPadding;
-        double binaryThreshold = 0.2;
-        // Параметры для удаления маленьких компонентов (components_out и components_in).
-        int compOutMinSize = 40;
-        int compInMinSize = 40;
-        // Порог для финальной бинаризации (rank/make_binary).
-        double rankBinaryThreshold;
+        double binaryForCropThreshold = 0.2; ///< threshold for cropping mask
+        int cropPadding;                     ///< padding when cropping
+        double binaryThreshold = 0.2;        ///< threshold for noise removal
+        int compOutMinSize = 40;             ///< minimal size of outer components
+        int compInMinSize = 40;              ///< minimal size of inner components
+        double rankBinaryThreshold;          ///< final binarisation threshold
     };
 
-    // Конфигурация для дилатации.
+    /** Configuration for dilation. */
     struct DilateConfig {
-        int kernelSize = 3;
-        int iterations = 1;
+        int kernelSize = 3; ///< kernel size for dilation
+        int iterations = 1; ///< number of iterations
     };
 
-    // Конфигурация для генерации карты гребней.
+    /** Configuration for ridge map generation. */
     struct RidgeConfig {
-        std::string mode = "";
-        std::vector<double> sigmas = {1.0, 2.0, 3.0};
+        std::string mode = "";           ///< generation mode
+        std::vector<double> sigmas = {1.0, 2.0, 3.0}; ///< list of scales
     };
 
-    // Конфигурация для вычисления списка меток.
+    /** Parameters used for computing the label list. */
     struct LabelsListConfig {
-        double sigmaStart = 1.0;
-        double sigmaStep = 0.2;
-        double gaussianSeedsThreshold = 0.05;
-        int maxIter = 1;
-        int backgroundErosionKernelSize = 3;
-        bool debug = true;
+        double sigmaStart = 1.0;              ///< starting sigma
+        double sigmaStep = 0.2;               ///< step between sigma values
+        double gaussianSeedsThreshold = 0.05; ///< threshold for seeds
+        int maxIter = 1;                      ///< number of iterations
+        int backgroundErosionKernelSize = 3;  ///< erosion kernel size
+        bool debug = true;                    ///< enable debug output
     };
 
-    // Конфигурация для этапа over-segmentation.
+    /** Configuration for the over-segmentation stage. */
     struct OverSegmentConfig {
-        // Здесь можно добавить параметры для генерации map_initial_seeds,
-        // а также для создания финальной watershed-сегментации.
+        // Additional parameters for map_initial_seeds or final watershed can be
+        // added here.
     };
 
-    // Конфигурация для этапа слияния узлов.
+    /** Configuration for node merging stage. */
     struct MergeNodesConfig {
-        double areaThreshold = 10.0;
+        double areaThreshold = 10.0; ///< merge zones smaller than this area
     };
 
-    // Конфигурация для этапа слияния рёбер.
+    /** Configuration for edge merging stage. */
     struct MergeEdgesConfig {
-        double lengthThreshold;
+        double lengthThreshold; ///< merge edges shorter than this length
     };
 
-    // Объединённая конфигурация пайплайна сегментации.
+    /** Combined configuration for the full segmentation pipeline. */
     struct SegmenterConfig {
-        AlignmentConfig alignmentConfig;
-        DenoiseConfig denoiseConfig;
-        DilateConfig dilateConfig;
-        RidgeConfig ridgeConfig;
-        LabelsListConfig labelsListConfig;
-        OverSegmentConfig overSegmentConfig;
-        MergeNodesConfig mergeNodesConfig;
-        MergeEdgesConfig mergeEdgesConfig;
+        AlignmentConfig alignmentConfig;   ///< alignment parameters
+        DenoiseConfig denoiseConfig;       ///< denoising parameters
+        DilateConfig dilateConfig;         ///< dilation parameters
+        RidgeConfig ridgeConfig;           ///< ridge map parameters
+        LabelsListConfig labelsListConfig; ///< label list computation
+        OverSegmentConfig overSegmentConfig; ///< over-segmentation parameters
+        MergeNodesConfig mergeNodesConfig;   ///< node merge parameters
+        MergeEdgesConfig mergeEdgesConfig;   ///< edge merge parameters
     };

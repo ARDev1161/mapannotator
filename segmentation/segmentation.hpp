@@ -8,45 +8,51 @@
 #include <set>
 #include "../utils.hpp"
 
+/**
+ * @brief Collection of static image segmentation helpers.
+ */
 class Segmentation {
 public:
-    // Структура для хранения информации о кадрировании.
+    /** Information about cropping offsets. */
     struct CropInfo {
-        int left;   // Отступ слева
-        int top;    // Отступ сверху
-        int right;  // Отступ справа
-        int bottom; // Отступ снизу
+        int left;   ///< offset from the left
+        int top;    ///< offset from the top
+        int right;  ///< offset from the right
+        int bottom; ///< offset from the bottom
     };
 
-    // Находит ограничивающий прямоугольник (bounding box) для карты.
-    // Алгоритм использует значение фонового пикселя (пиксель [0,0]).
-    // Возвращается cv::Rect, где (x,y) – верхний левый угол, а width и height – размеры ROI.
+    /**
+     * Find the bounding box for the given map using the background pixel (0,0)
+     * as reference.
+     */
     static cv::Rect findBB(const cv::Mat& map);
 
-    // Вычисляет информацию для единичного кадрирования (с отступами).
+    /** Compute cropping info with optional padding. */
     static CropInfo cropSingleInfo(const cv::Mat& map, int padding = 0);
-    // Вычисляет информацию для пакетного кадрирования двух карт.
+    /** Compute common cropping info for two maps. */
     static CropInfo cropBundleInfo(const cv::Mat& rankMap, const cv::Mat& trackMap);
 
-    // Функции кадрирования и восстановления исходного размера.
+    /** Crop map using previously obtained CropInfo. */
     static cv::Mat cropBackground(const cv::Mat& map, const CropInfo& info);
+    /** Restore original size by padding cropped image with background colour. */
     static cv::Mat uncropBackground(const cv::Mat& map, const CropInfo& info, const cv::Scalar& background);
 
-    // Функция remapBorder: заменяет пиксели с заданным ярлыком границы на 255.
-    // Если border_label == -1, то используется максимальное значение.
+    /** Replace pixels with the specified border label by 255.
+     * If border_label == -1 the maximal label value is used. */
     static cv::Mat remapBorder(const cv::Mat& map, int border_label = -1);
 
-    // Удаляет небольшие связные компоненты из бинарного изображения.
-    // Параметр method может принимать значения "fixed", "mean" или "median".
+    /** Remove small connected components from a binary image. */
     static cv::Mat removeSmallConnectedComponents(const cv::Mat& src, const std::string& method = "fixed",
                                                     int min_size = 1, int connectivity = 4, bool debug = false);
 
-    // Генерирует метки (seeds) на основе гауссового размытия.
+    /** Generate watershed seeds using Gaussian blur. */
     static cv::Mat generateGaussianSeeds(const cv::Mat& src, const cv::Mat& background_mask,
                                            double sigma, double threshold = 0.05);
 
-    // Выполняет сегментацию методом watershed.
-    // Входное изображение src должно быть 3-канальным; labels – исходные метки (CV_32S).
+    /** Perform watershed segmentation.
+     *  @param src     3-channel source image
+     *  @param labels  initial markers (CV_32S)
+     */
     static cv::Mat createWatershedSegment(const cv::Mat& src, const cv::Mat& labels, int connectivity = 4);
 };
 

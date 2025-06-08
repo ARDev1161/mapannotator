@@ -9,6 +9,9 @@
 //#include <string>
 #include "typeregistry.h"
 
+/**
+ * @brief A collection of geometric features extracted from a zone.
+ */
 struct ZoneFeatures
 {
     double A;       ///< area  (m²)
