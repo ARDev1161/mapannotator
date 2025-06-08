@@ -37,7 +37,6 @@ void drawZoneGraph(const GraphT& g,
         return;
     }
 
-    int ySign = (invertY == true) ? -1 : 1;
 
     /* ---------- bounding box ------------------------------------------ */
     double minX =  1e9, minY =  1e9;
