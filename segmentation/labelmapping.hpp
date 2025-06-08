@@ -9,24 +9,29 @@
 #include <utility> // для std::pair
 #include "../utils.hpp"
 
+/** Information about detected label centroids. */
 struct LabelsInfo {
-    cv::Mat1i                          centroidLabels;   // 0 = фон; lbl в центроиде
-    std::unordered_map<int, cv::Point> centroids;        // label → (x,y)
-    int                                numLabels;        // включая фон
+    cv::Mat1i                          centroidLabels;   ///< 0 = background, >0 = label id at centroid
+    std::unordered_map<int, cv::Point> centroids;        ///< label → (x,y)
+    int                                numLabels;        ///< number of labels including background
 };
 
+/** Binary mask of a single labelled zone. */
 struct ZoneMask {
-    int      label;   // код метки (≥1)
-    cv::Mat1b mask;   // 255 внутри зоны, 0 снаружи (размер = freeMap)
+    int      label;   ///< zone id (≥1)
+    cv::Mat1b mask;   ///< 255 inside, 0 outside (same size as free map)
 };
 
+/**
+ * @brief Helper algorithms dealing with label maps.
+ */
 class LabelMapping {
 public:
-    // Функция remap – создаёт глубокую копию входной карты и заменяет пиксели согласно словарю remapDict.
-    // Предполагается, что входная карта имеет тип CV_32S.
+    /** Deep-copy the map and replace pixels using remapDict (expects CV_32S). */
     template<typename T>
     static cv::Mat remap(const cv::Mat& inputMap, const std::map<T, T>& remapDict);
 
+    /** Compute label centroids and IDs from a dilated binary map. */
     static LabelsInfo computeLabels(const cv::Mat1b& binaryDilated, int backgroundErosionKernelSize);
 
     static std::vector<ZoneMask>
@@ -49,6 +54,7 @@ public:
 private:
     // Функция получает бинарное изображение (8UC1), где объекты имеют значение 255, фон — 0,
     // и возвращает карту меток для watershed (каждая связная область получает уникальное целочисленное значение).
+    /** Helper for local maxima extraction used in watershed seeding. */
     static cv::Mat getLocalMax(const cv::Mat& dist);
 
     /**

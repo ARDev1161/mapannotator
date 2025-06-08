@@ -9,22 +9,31 @@
 #include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
 
-/* 2.1 Информация о типе, расширяемая без перекомпиляции */
+/**
+ * @brief Runtime description of a semantic zone type.
+ *
+ * Instances of this struct are loaded from YAML and stored inside the
+ * TypeRegistry. They are referenced by ZoneType objects via shared pointers.
+ */
 struct TypeInfo
 {
-    uint16_t            id;         // уникальный числовой код
-    std::string         name;       // "Corridor"
-    std::string         path;       // "Passage.Corridor"
-    std::string         major;      // "Passage"
-    std::optional<cv::Scalar> color;   // B,G,R, optionally loaded
+    uint16_t            id;    ///< unique numeric identifier
+    std::string         name;  ///< short name, e.g. "Corridor"
+    std::string         path;  ///< full path like "Passage.Corridor"
+    std::string         major; ///< top level category
+    std::optional<cv::Scalar> color; ///< optional BGR colour
 };
 
-/* 2.2 Итоговый тип зоны, который возвращает классификатор */
+/**
+ * @brief Final zone type returned by the classifier.
+ *
+ * The class merely wraps a pointer to TypeInfo. If the pointer is null the type
+ * is considered unknown.
+ */
 struct ZoneType
 {
-    /*  pointer to the entry in TypeRegistry;
-        nullptr  ⇒  «Unknown / not classified»                         */
-    std::shared_ptr<const TypeInfo> info;              // ← имеет дефолтное значение
+    /** Pointer to the registry entry; may be nullptr for "Unknown". */
+    std::shared_ptr<const TypeInfo> info;
 
     /* convenience ctors */
     ZoneType()  = default;
@@ -39,12 +48,18 @@ struct ZoneType
     std::string major() const { return info ? info->major : "Unknown"; }
 };
 
+/**
+ * @brief Pick a display colour for the given zone type.
+ *
+ * If the type has an explicit colour in the YAML description it is used;
+ * otherwise a pastel shade derived from the type path is returned.
+ */
 inline cv::Scalar zoneColor(const ZoneType& z)
 {
-    /* 1. YAML-цвет задан → используем его */
+    /* 1. YAML colour specified → use it */
     if (z.info && z.info->color) return *z.info->color;
 
-    /* 2. иначе  – автоматически: hash(path) → пастельный цвет */
+    /* 2. otherwise derive a pastel colour from hash(path) */
     std::size_t h = std::hash<std::string>{}( z.path() );
     int b = 150 + (h & 0x3F);        // 150-213  (пастель)
     int g = 150 + ((h >> 6 ) & 0x3F);
@@ -64,17 +79,29 @@ namespace std
     };
 }
 
+/**
+ * @brief Container storing all known zone types loaded from YAML.
+ */
 class TypeRegistry
 {
 public:
-    bool load(const YAML::Node& types_y);              // рекурсивный разбор
-    const TypeInfo* get(const std::string& path) const; // "A.B"
+    /** Parse YAML tree and populate the registry recursively. */
+    bool load(const YAML::Node& types_y);
+
+    /** Retrieve type information by path, e.g. "A.B". */
+    const TypeInfo* get(const std::string& path) const;
+
+    /** Pointer to the predefined "Unknown" type (may be nullptr). */
     const TypeInfo* unknown() const { return unknown_; }
 
 private:
+    /** Map path string → TypeInfo instance. */
     std::unordered_map<std::string, std::unique_ptr<TypeInfo>> by_path_;
+
+    /** Cached pointer to the "Unknown" entry. */
     const TypeInfo* unknown_{nullptr};
 
+    /** Recursive helper used by load(). */
     void parseNode(const YAML::Node& node,
                    const std::string& parent_path);
 };

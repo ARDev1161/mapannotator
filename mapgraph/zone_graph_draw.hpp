@@ -17,10 +17,15 @@
 namespace mapping {
 
 /**
- * @param g            граф
- * @param canvas       выходное изображение (создаётся, если пустое)
- * @param scale        пикселей на единицу координат (0.05 = 20 px на 1 м)
- * @param radius_px    радиус кружка‑узла в px
+ * @brief Render a zone graph onto an OpenCV canvas.
+ *
+ * @tparam GraphT     Graph type implementing the IZoneGraph interface.
+ * @param g           Input graph.
+ * @param canvas      Output image; created if empty.
+ * @param scale       Pixels per map unit (0.05 → 20 px per metre).
+ * @param radius_px   Radius of the node circle in pixels.
+ * @param drawWidths  Whether to display passage widths.
+ * @param invertY     Flip the Y axis when drawing.
  */
 template<typename GraphT = IZoneGraph>
 void drawZoneGraph(const GraphT& g,

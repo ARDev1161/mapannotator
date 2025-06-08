@@ -7,18 +7,25 @@
 /* -------------------------------------------------------------- *
  * PDDLGenerator: формирует куски PDDL из ZoneGraph               *
  * -------------------------------------------------------------- */
+/**
+ * @brief Convert a ZoneGraph to fragments of PDDL domain/problem files.
+ */
 class PDDLGenerator
 {
 public:
     explicit PDDLGenerator(const mapping::ZoneGraph& g) : graph_(g) {}
 
-    /* ---------- problem-файл ----------------------------------- */
-    std::string objects()             const;          // (:objects …)
-    std::string init(const std::string& start) const; // (:init …)
-    std::string goal(const std::string& goal)  const; // (:goal …)
+    /* ---------- problem file helpers --------------------------- */
+    /** PDDL (:objects ...) block. */
+    std::string objects()             const;
+    /** PDDL (:init ...) block. */
+    std::string init(const std::string& start) const;
+    /** PDDL (:goal ...) block. */
+    std::string goal(const std::string& goal)  const;
 
     /* более мелкие под-функции, если нужно комбинировать вручную */
-    std::string classPredicates()     const;          // passage/room/…
+    /** Produce (class zoneX) predicates for all nodes. */
+    std::string classPredicates()     const;
 
     /* ---------------------------------------------------------------
      *  Генерирует блок  (connected A B)
@@ -27,12 +34,15 @@ public:
      *  Дубликаты исключаются независимо от того, хранит ли граф
      *  соседей с обеих сторон.
      * --------------------------------------------------------------- */
-    std::string connectivity(bool sym=false) const;    // connected
+    /** Connectivity predicates optionally symmetric. */
+    std::string connectivity(bool sym=false) const;
 
-    std::string location(const std::string& z) const; // (at robot Z)
+    /** (at robot Z) predicate helper. */
+    std::string location(const std::string& z) const;
 
     /* ---------- helpers ---------------------------------------- */
-    std::string zoneLabel(const mapping::NodePtr& n) const;    // нормализует имя
+    /** Sanitize zone label for use in PDDL identifiers. */
+    std::string zoneLabel(const mapping::NodePtr& n) const;
 
 private:
     const mapping::ZoneGraph&  graph_;

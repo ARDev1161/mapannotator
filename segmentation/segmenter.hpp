@@ -10,29 +10,36 @@
 #include "../utils.hpp"
 #include "../config.hpp"
 
+/**
+ * @brief High level segmentation pipeline orchestrating all steps.
+ */
 class Segmenter {
 public:
-    // Основной метод сегментации:
-    // Принимает исходное изображение (грейскейл или float32 с диапазоном [0,1]) и конфигурацию.
-    // Возвращает глобальную сегментационную карту после всех этапов.
+    /**
+     * Run the full segmentation pipeline on the given image.
+     * @param raw     Source image in grayscale or float32 [0,1].
+     * @param config  Segmentation parameters.
+     * @return        Final segmentation map.
+     */
     cv::Mat doSegment(const cv::Mat& raw, const SegmenterConfig& config);
 private:
-    // Генерация денойзенной карты и информации о кадрировании.
+    /** Generate denoised map and cropping information. */
     std::pair<cv::Mat, Segmentation::CropInfo> generateDenoisedAlone(const cv::Mat& raw,
                                                                       const DenoiseConfig& config);
-    // Вычисление списка меток для различных sigma.
+    /** Compute list of labels for different sigma values. */
     std::tuple<std::vector<double>, std::vector<cv::Mat>, std::vector<int>, std::vector<cv::Mat>>
     computeLabelsList(const cv::Mat& binaryDilated,
                       double sigmaStart, double sigmaStep, int maxIter,
                       int backgroundErosionKernelSize, double gaussianSeedsThreshold, bool debug);
-    // Этап over-segmentation: создание глобальной карты меток на основе локальных мапперов.
+    /** Over-segmentation stage producing global label map. */
     std::pair<cv::Mat, int> overSegment(const cv::Mat& ridges,
                                         const std::vector<double>& sigmasList,
                                         const std::vector<cv::Mat>& labelsList,
                                         const OverSegmentConfig& config);
-    // Подготовка сегментов для экспорта: откадрирование и remap границ.
+    /** Prepare segments for export: uncrop and remap borders. */
     cv::Mat prepareSegmentsForExport(const cv::Mat& seg, const Segmentation::CropInfo& cropInfo);
 
+    /** Find local maxima of the distance transform. */
     static cv::Mat getLocalMax(const cv::Mat& dist);
     static cv::Mat getCentroids(const cv::Mat& binaryImage);
     static cv::Mat assignLabels(const cv::Mat& binaryImage);
