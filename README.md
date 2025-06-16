@@ -48,3 +48,19 @@ and creates visual previews of the computed zones.
 
 This project is distributed under the terms of the MIT license. See
 [LICENSE](LICENSE) for details.
+
+## ROS 2 Integration
+
+When ROS 2 and the required message packages are available the project can be
+built with an additional node that consumes a `nav_msgs/OccupancyGrid` and
+publishes the generated PDDL.
+
+The node subscribes to `/map` by default and publishes to `/pddl/map`. Example
+build and run steps:
+
+```bash
+mkdir build && cd build
+cmake ..
+make mapannotator_ros2
+ros2 run mapannotator mapannotator_ros2
+```
