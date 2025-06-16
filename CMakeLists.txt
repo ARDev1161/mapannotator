@@ -38,3 +38,20 @@ add_executable(${PROJECT_NAME} main.cpp
                                utils.hpp config.hpp)
 
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)
+
+find_package(rclcpp QUIET)
+if(rclcpp_FOUND)
+    find_package(nav_msgs REQUIRED)
+    find_package(std_msgs REQUIRED)
+    add_executable(mapannotator_ros2 ros2_node.cpp
+                                   ${ZONEGRAPH_SRC}
+                                   ${PREPARING_SRC}
+                                   ${SEGMENTATION_SRC}
+                                   ${PDDL_SRC}
+                                   utils.hpp config.hpp)
+    target_link_libraries(mapannotator_ros2 PUBLIC
+                          ${OpenCV_LIBS} yaml-cpp
+                          rclcpp::rclcpp
+                          nav_msgs::nav_msgs
+                          std_msgs::std_msgs)
+endif()
