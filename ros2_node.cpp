@@ -17,13 +17,14 @@ using namespace std::placeholders;
 using mapping::ZoneGraph;
 using mapping::NodePtr;
 
-static std::string generatePddlFromMap(const cv::Mat1b &raw)
+static std::string generatePddlFromMap(const cv::Mat1b &raw,
+                                       const SegmenterConfig &cfg,
+                                       int max_iter,
+                                       double sigma_step,
+                                       double seg_threshold,
+                                       const std::string &start_zone,
+                                       const std::string &goal_zone)
 {
-    SegmenterConfig cfg;
-    cfg.denoiseConfig.cropPadding = 5;
-    cfg.denoiseConfig.rankBinaryThreshold = 0.2;
-    cfg.labelsListConfig.debug = false;
-
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
 
@@ -36,7 +37,8 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw)
                                           cfg.dilateConfig.iterations);
 
     mapping::LabelsInfo labels;
-    auto zones = segmentByGaussianThreshold(binaryDilated, labels, 50, 0.5);
+    auto zones = segmentByGaussianThreshold(binaryDilated, labels,
+                                            max_iter, sigma_step, seg_threshold);
 
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
     for (const auto &z : zones)
@@ -50,8 +52,8 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw)
     oss << "(define (problem map_problem)\n"
         << "  (:domain map_domain)\n"
         << gen.objects()
-        << gen.init("ROBOT_CUR_ZONE")
-        << gen.goal("ROBOT_GOAL_ZONE")
+        << gen.init(start_zone)
+        << gen.goal(goal_zone)
         << ")\n";
     return oss.str();
 }
@@ -61,12 +63,30 @@ class MapAnnotatorNode : public rclcpp::Node
 public:
     MapAnnotatorNode() : Node("map_annotator_node")
     {
-        std::string map_topic = this->declare_parameter("map_topic", std::string("/map"));
-        std::string pddl_topic = this->declare_parameter("pddl_topic", std::string("/pddl/map"));
+        map_topic_  = this->declare_parameter("map_topic", std::string("/map"));
+        pddl_topic_ = this->declare_parameter("pddl_topic", std::string("/pddl/map"));
+
+        config_.denoiseConfig.cropPadding =
+            this->declare_parameter("denoise.crop_padding", 5);
+        config_.denoiseConfig.rankBinaryThreshold =
+            this->declare_parameter("denoise.rank_binary_threshold", 0.2);
+        config_.dilateConfig.kernelSize =
+            this->declare_parameter("dilate.kernel_size", 3);
+        config_.dilateConfig.iterations =
+            this->declare_parameter("dilate.iterations", 1);
+        config_.alignmentConfig.enable =
+            this->declare_parameter("alignment.enable", true);
+
+        seg_max_iter_ = this->declare_parameter("segmentation.max_iter", 50);
+        seg_sigma_step_ = this->declare_parameter("segmentation.sigma_step", 0.5);
+        seg_threshold_ = this->declare_parameter("segmentation.threshold", 0.5);
+
+        start_zone_ = this->declare_parameter("start_zone", std::string("ROBOT_CUR_ZONE"));
+        goal_zone_  = this->declare_parameter("goal_zone", std::string("ROBOT_GOAL_ZONE"));
 
         map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-            map_topic, 10, std::bind(&MapAnnotatorNode::mapCallback, this, _1));
-        pddl_pub_ = this->create_publisher<std_msgs::msg::String>(pddl_topic, 10);
+            map_topic_, 10, std::bind(&MapAnnotatorNode::mapCallback, this, _1));
+        pddl_pub_ = this->create_publisher<std_msgs::msg::String>(pddl_topic_, 10);
     }
 
 private:
@@ -94,7 +114,9 @@ private:
         mapInfo.width = msg->info.width;
         mapInfo.height = msg->info.height;
 
-        std::string pddl = generatePddlFromMap(map);
+        std::string pddl = generatePddlFromMap(map, config_,
+                                              seg_max_iter_, seg_sigma_step_, seg_threshold_,
+                                              start_zone_, goal_zone_);
         std_msgs::msg::String out;
         out.data = pddl;
         pddl_pub_->publish(out);
@@ -102,6 +124,14 @@ private:
 
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pddl_pub_;
+    std::string map_topic_;
+    std::string pddl_topic_;
+    SegmenterConfig config_;
+    int seg_max_iter_;
+    double seg_sigma_step_;
+    double seg_threshold_;
+    std::string start_zone_;
+    std::string goal_zone_;
 };
 
 int main(int argc, char **argv)

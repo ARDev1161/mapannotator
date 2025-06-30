@@ -5,8 +5,12 @@ project(mapannotator LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(ament_cmake REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(YAML-CPP REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 set(ZONEGRAPH_SRC
     mapgraph/zonegraph.hpp mapgraph/zonegraph.cpp
@@ -39,19 +43,19 @@ add_executable(${PROJECT_NAME} main.cpp
 
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)
 
-find_package(rclcpp QUIET)
-if(rclcpp_FOUND)
-    find_package(nav_msgs REQUIRED)
-    find_package(std_msgs REQUIRED)
-    add_executable(mapannotator_ros2 ros2_node.cpp
-                                   ${ZONEGRAPH_SRC}
-                                   ${PREPARING_SRC}
-                                   ${SEGMENTATION_SRC}
-                                   ${PDDL_SRC}
-                                   utils.hpp config.hpp)
-    target_link_libraries(mapannotator_ros2 PUBLIC
-                          ${OpenCV_LIBS} yaml-cpp
-                          rclcpp::rclcpp
-                          nav_msgs::nav_msgs
-                          std_msgs::std_msgs)
-endif()
+add_executable(mapannotator_ros2 ros2_node.cpp
+                               ${ZONEGRAPH_SRC}
+                               ${PREPARING_SRC}
+                               ${SEGMENTATION_SRC}
+                               ${PDDL_SRC}
+                               utils.hpp config.hpp)
+target_link_libraries(mapannotator_ros2 PUBLIC
+                      ${OpenCV_LIBS} yaml-cpp
+                      rclcpp::rclcpp
+                      nav_msgs::nav_msgs
+                      std_msgs::std_msgs)
+
+install(TARGETS ${PROJECT_NAME} mapannotator_ros2
+        RUNTIME DESTINATION lib/${PROJECT_NAME})
+
+ament_package()
