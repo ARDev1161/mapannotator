@@ -39,6 +39,7 @@ add_executable(${PROJECT_NAME} main.cpp
                                ${PREPARING_SRC}
                                ${SEGMENTATION_SRC}
                                ${PDDL_SRC}
+                               map_processing.cpp
                                utils.hpp config.hpp)
 
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)
@@ -48,12 +49,15 @@ add_executable(mapannotator_ros2 ros2_node.cpp
                                ${PREPARING_SRC}
                                ${SEGMENTATION_SRC}
                                ${PDDL_SRC}
+                               map_processing.cpp
                                utils.hpp config.hpp)
-target_link_libraries(mapannotator_ros2 PUBLIC
-                      ${OpenCV_LIBS} yaml-cpp
-                      rclcpp::rclcpp
-                      nav_msgs::nav_msgs
-                      std_msgs::std_msgs)
+target_link_libraries(mapannotator_ros2
+                      ${OpenCV_LIBS} yaml-cpp)
+
+ament_target_dependencies(mapannotator_ros2
+                          rclcpp
+                          nav_msgs
+                          std_msgs)
 
 install(TARGETS ${PROJECT_NAME} mapannotator_ros2
         RUNTIME DESTINATION lib/${PROJECT_NAME})

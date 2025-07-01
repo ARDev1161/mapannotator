@@ -11,11 +11,15 @@
 #include "segmentation/labelmapping.hpp"
 #include "mapgraph/zonegraph.hpp"
 #include "pddl/pddlgenerator.h"
+#include "map_processing.hpp"
 
 using namespace std::placeholders;
 
 using mapping::ZoneGraph;
 using mapping::NodePtr;
+
+
+
 
 static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                        const SegmenterConfig &cfg,
@@ -36,7 +40,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     cv::Mat1b binaryDilated = erodeBinary(rank, cfg.dilateConfig.kernelSize,
                                           cfg.dilateConfig.iterations);
 
-    mapping::LabelsInfo labels;
+    LabelsInfo labels;
     auto zones = segmentByGaussianThreshold(binaryDilated, labels,
                                             max_iter, sigma_step, seg_threshold);
 
