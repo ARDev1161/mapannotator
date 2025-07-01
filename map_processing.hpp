@@ -9,15 +9,15 @@
 #include "segmentation/segmentation.hpp"
 #include "segmentation/labelmapping.hpp"
 
-std::vector<mapping::ZoneMask>
+std::vector<ZoneMask>
 segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
-                           mapping::LabelsInfo &labelsOut,
+                           LabelsInfo &labelsOut,
                            int maxIter = 40,
                            double sigmaStep = 0.25,
                            double threshold = 0.5);
 
 void buildGraph(mapping::ZoneGraph &graphOut,
-                std::vector<mapping::ZoneMask> zones,
+                std::vector<ZoneMask> zones,
                 cv::Mat1i zonesMat,
                 std::unordered_map<int, cv::Point> centroids);
 
