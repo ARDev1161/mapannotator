@@ -32,8 +32,8 @@ struct TypeInfo
  */
 struct ZoneType
 {
-    /** Pointer to the registry entry; may be nullptr for "Unknown". */
-    std::shared_ptr<const TypeInfo> info;
+    /** Pointer to the registry entry; not owned. May be nullptr for "Unknown". */
+    const TypeInfo* info{nullptr};
 
     /* convenience ctors */
     ZoneType()  = default;
@@ -74,7 +74,7 @@ namespace std
     {
         size_t operator()(const ZoneType& z) const noexcept
         {
-            return std::hash<std::shared_ptr<const TypeInfo>>{}(z.info);
+            return std::hash<const TypeInfo*>{}(z.info);
         }
     };
 }
