@@ -200,18 +200,62 @@ double MapPreprocessing::findAlignmentAngle(const cv::Mat& grayscale, const Alig
     return angle_deg;
 }
 
+cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
+                                                     int kernelSize,
+                                                     int maxIter)
+{
+    CV_Assert(!src.empty());
+
+    int type = src.type();
+    cv::Mat current;
+    if (type != CV_8U)
+        src.convertTo(current, CV_8U, 255.0);
+    else
+        current = src.clone();
+
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT,
+                                               cv::Size(kernelSize, kernelSize));
+
+    int prevGray = -1;
+    for (int i = 0; i < maxIter; ++i)
+    {
+        cv::erode(current, current, kernel);
+        cv::dilate(current, current, kernel);
+
+        cv::Mat grayMask;
+        cv::inRange(current, 1, 254, grayMask); // pixels that are neither black nor white
+        int grayCount = cv::countNonZero(grayMask);
+
+        if (grayCount == prevGray)
+            break;
+        prevGray = grayCount;
+    }
+
+    if (type != CV_8U)
+    {
+        cv::Mat res;
+        current.convertTo(res, type, 1.0 / 255.0);
+        return res;
+    }
+
+    return current;
+}
+
 // Реализация генерации денойзенной карты.
 // Здесь вызываются функции из Segmentation для бинаризации, кадрирования, инверсии и удаления шумовых компонентов.
 std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlone(const cv::Mat& raw,
     const DenoiseConfig& config) {
 
+    // Устраняем серые (неизвестные) зоны перед дальнейшей обработкой
+    cv::Mat preprocessed = unknownRegionsDissolution(raw);
+
     // Создаем бинарную карту для определения области кадрирования.
-    cv::Mat binaryForCrop = makeBinary(raw, config.binaryForCropThreshold * 255, 255);
+    cv::Mat binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
     Segmentation::CropInfo cropInfo = Segmentation::cropSingleInfo(binaryForCrop, config.cropPadding);
 
     // Освобождаем память, если необходимо.
     // Обрезаем исходное изображение до ROI.
-    cv::Mat rank = Segmentation::cropBackground(raw, cropInfo);
+    cv::Mat rank = Segmentation::cropBackground(preprocessed, cropInfo);
 
     // Применяем бинаризацию для удаления шума.
     rank = makeBinary(rank, config.binaryThreshold * 255, 255);
