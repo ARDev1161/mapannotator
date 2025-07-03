@@ -242,6 +242,9 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     return current;
 }
 
+// Удаляет "серые островки" – области неизвестных пикселей,
+// которые не имеют связи с чёрными клетками карты.
+// Чёрным считаются значения 0, белым – 255, все остальные оттенки – серые.
 cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity)
 {
     CV_Assert(!src.empty());
@@ -249,13 +252,17 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
 
     int type = src.type();
     cv::Mat work;
+    // Для удобства работы приводим изображение к CV_8U (0..255).
     if (type != CV_8U)
         src.convertTo(work, CV_8U, 255.0);
     else
         work = src.clone();
 
+    // Очередь для обхода и матрица посещённых пикселей.
     cv::Mat visited = cv::Mat::zeros(work.size(), CV_8U);
     std::queue<cv::Point> q;
+
+    // Стартовые точки обхода – все чёрные пиксели.
     for (int y = 0; y < work.rows; ++y)
     {
         for (int x = 0; x < work.cols; ++x)
@@ -268,12 +275,14 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
         }
     }
 
+    // Варианты смещений соседей: 4- или 8-связность.
     std::vector<cv::Point> dirs;
     if (connectivity == 4)
         dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
     else
         dirs = { {1,0}, {-1,0}, {0,1}, {0,-1}, {1,1}, {1,-1}, {-1,1}, {-1,-1} };
 
+    // BFS: отмечаем все пиксели, достижимые из чёрных через не-белые клетки.
     while (!q.empty())
     {
         cv::Point p = q.front();
@@ -287,13 +296,14 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
             if (visited.at<uchar>(ny, nx))
                 continue;
             uchar val = work.at<uchar>(ny, nx);
-            if (val == 255)
+            if (val == 255) // белый пиксель не проходим
                 continue;
             visited.at<uchar>(ny, nx) = 1;
             q.emplace(nx, ny);
         }
     }
 
+    // Перекрашиваем серые пиксели, которые не были помечены как достижимые.
     cv::Mat result = work.clone();
     for (int y = 0; y < work.rows; ++y)
     {
@@ -301,7 +311,7 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
         {
             uchar val = work.at<uchar>(y, x);
             if (val != 0 && val != 255 && !visited.at<uchar>(y, x))
-                result.at<uchar>(y, x) = 255;
+                result.at<uchar>(y, x) = 255; // изолированный "остров" -> белый
         }
     }
 
