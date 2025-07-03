@@ -43,7 +43,7 @@
         double binaryThreshold = 0.2;        ///< threshold for noise removal
         int compOutMinSize = 40;             ///< minimal size of outer components
         int compInMinSize = 40;              ///< minimal size of inner components
-        double rankBinaryThreshold;          ///< final binarisation threshold
+        double rankBinaryThreshold = 0.9;    ///< final binarisation threshold
     };
 
     /** Configuration for dilation. */

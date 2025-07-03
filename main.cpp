@@ -21,6 +21,7 @@
 
 using namespace mapping;
 
+#define SHOW_DEBUG_IMAGES
 
 /**
  * @param  seg        CV_32S: 0 = стены/фон, ≥1 = код зоны
@@ -188,12 +189,14 @@ int main(int argc, char** argv)
     cv::Mat aligned;
     MapPreprocessing::mapAlign(raw8u, aligned, segmenterConfig.alignmentConfig);
 
-//    showMat("aligned Map", aligned);
+   showMat("aligned Map", aligned);
 
     // Этап денойзинга.
     auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned, segmenterConfig.denoiseConfig);
 
-//    showMat("Denoised Map", rank);
+   cv::Mat out;
+   rank.convertTo(out, CV_8U, 255);
+   showMat("Denoised Map", out);
 
     // Расширенние черных зон(препятствия)
     cv::Mat1b binaryDilated = erodeBinary(rank, segmenterConfig.dilateConfig.kernelSize, segmenterConfig.dilateConfig.iterations);
@@ -221,9 +224,9 @@ int main(int argc, char** argv)
             int iter = 0;
     for (const auto& z : zones) {
 
-        cv::Mat1b seg8u;
-        z.mask.convertTo(seg8u, CV_8U, 255);       // CV_8U для applyColorMap
-        showMat("Zone №" + std::to_string(z.label), seg8u);
+        // cv::Mat1b seg8u;
+        // z.mask.convertTo(seg8u, CV_8U, 255);       // CV_8U для applyColorMap
+        // showMat("Zone №" + std::to_string(z.label), seg8u);
 
         segmentation.setTo(z.label, z.mask);
     }

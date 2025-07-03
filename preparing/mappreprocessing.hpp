@@ -45,7 +45,7 @@ public:
      */
     static cv::Mat unknownRegionsDissolution(const cv::Mat& src,
                                              int kernelSize = 3,
-                                             int maxIter = 100);
+                                             int maxIter = 1000);
 
     /**
      * Remove grey regions that are not connected with black pixels.

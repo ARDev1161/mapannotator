@@ -223,6 +223,7 @@ static inline bool toDisplayable(const cv::Mat& src,
 
 static void showMat(const std::string &windowName, const cv::Mat &mat, bool isColor = true)
 {
+#ifdef SHOW_DEBUG_IMAGES
     cv::Mat vis;
     if(toDisplayable(mat, vis, isColor))
     {
@@ -230,7 +231,7 @@ static void showMat(const std::string &windowName, const cv::Mat &mat, bool isCo
         cv::resizeWindow(windowName, mat.cols, mat.rows);
         cv::imshow(windowName, mat);
     }
-
+#endif
 }
 
 /*-------------------------------------------------------------------------*/

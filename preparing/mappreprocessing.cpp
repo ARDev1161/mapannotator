@@ -202,96 +202,75 @@ double MapPreprocessing::findAlignmentAngle(const cv::Mat& grayscale, const Alig
 }
 
 cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
-                                                     int kernelSize,
-                                                     int maxIter)
+                          int kernelSize,
+                          int maxIter) // «предохранитель» от бесконечности
 {
-    CV_Assert(!src.empty());
+    cv::Mat out;
+    showMat("raw src", src);
 
-    // Функция заполняет серые (неизвестные) области карты. Процесс
-    // напоминает «затекание» чёрного и белого цветов в серые зоны:
-    //   1) чёрный расширяется на один пиксель;
-    //   2) удаляются результаты расширения, которые не соприкасаются с
-    //      серым (т.е. вторжение в белое отменяется);
-    //   3) белый аналогично расширяется в оставшийся серый фон;
-    //   4) расширение белого откатывается там, где оно столкнулось с
-    //      чёрным. Итерации повторяются, пока серых пикселей не станет
-    //   меньше или не будет достигнут лимит `maxIter`.
+    CV_Assert(src.type() == CV_8UC1);
+    const uchar GRAY = 205; // 205 default for ROS2 maps
+    const uchar BLACK = 190, WHITE = 230; // Black max & white min thresholds
 
-    int type = src.type();
-    cv::Mat current;
-    if (type != CV_8U)
-        src.convertTo(current, CV_8U, 255.0);  // приводим к диапазону [0,255]
-    else
-        current = src.clone();
+    /* ---------- маски исходного состояния ---------- */
+    cv::Mat black, white, gray;
+    cv::compare(src, BLACK, black, cv::CMP_LE);   // <= BLACK
+    cv::compare(src, WHITE, white, cv::CMP_GE);   // >= WHITE
+    cv::Mat bw;                                   // чёрное ∪ белое
+    cv::bitwise_or(black, white, bw);
+    cv::bitwise_not(bw, gray);                    // всё, что не 0 и не 255
 
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT,
-                                               cv::Size(kernelSize, kernelSize));
+    showMat("BLACK", black);
+    showMat("WHITE", white);
+    showMat("Gray", gray);
 
-    int prevGray = -1;
-    for (int i = 0; i < maxIter; ++i)
+    /* если серого нет – ничего делать не нужно */
+    if (!cv::countNonZero(gray))
+        return src.clone();
+
+    /* ---------- struct-элемент ---------- */
+    cv::Mat kernel = cv::getStructuringElement(
+        cv::MORPH_RECT, cv::Size(kernelSize, kernelSize));
+
+    /* ---------- рабочие буферы ---------- */
+    cv::Mat tmp, newMask, invGray;
+
+    for (int it = 0; (it < maxIter) && cv::countNonZero(gray); ++it)
     {
-        // Маски исходных пикселей
-        cv::Mat blackMask = (current == 0);
-        cv::Mat whiteMask = (current == 255);
+        /* ===== 1. ЧЁРНЫЙ шаг: erode → пересечение с gray ===== */
+        cv::erode(black, tmp, kernel);                // tmp = erode(black)
+        cv::bitwise_and(tmp, gray, newMask);          // новые чёрные
+        if (cv::countNonZero(newMask))
+        {
+            black |= newMask;                         // black ← black ∪ new
+            cv::bitwise_not(newMask, invGray);
+            gray &= invGray;                          // gray ← gray \ new
+        }
 
-        cv::Mat bwUnion;
-        cv::bitwise_or(blackMask, whiteMask, bwUnion);
-        cv::Mat grayMask;
-        cv::bitwise_not(bwUnion, grayMask); // все, что не чёрное и не белое
+        if (!cv::countNonZero(gray)) break;           // серый кончился
 
-        // --- шаги 1-2: расширяем чёрный только в сторону серого ---
-        cv::Mat blackDilated;
-        cv::dilate(blackMask, blackDilated, kernel);
-
-        cv::Mat grayDilated;
-        cv::dilate(grayMask, grayDilated, kernel);
-
-        cv::Mat newBlack;
-        cv::bitwise_and(blackDilated, grayDilated, newBlack); // куда можно расти
-        cv::bitwise_or(blackMask, newBlack, newBlack);
-
-        // --- оставшийся после чёрного серый фон ---
-        cv::Mat afterBlackUnion;
-        cv::bitwise_or(newBlack, whiteMask, afterBlackUnion);
-        cv::Mat grayAfterBlack;
-        cv::bitwise_not(afterBlackUnion, grayAfterBlack);
-
-        // --- шаги 3-4: расширяем белый только в оставшийся серый ---
-        cv::Mat whiteDilated;
-        cv::dilate(whiteMask, whiteDilated, kernel);
-
-        cv::Mat grayDilated2;
-        cv::dilate(grayAfterBlack, grayDilated2, kernel);
-
-        cv::Mat newWhite;
-        cv::bitwise_and(whiteDilated, grayDilated2, newWhite);
-        cv::bitwise_or(whiteMask, newWhite, newWhite);
-
-        cv::Mat next(current.size(), CV_8U, cv::Scalar(127));
-        next.setTo(0, newBlack);
-        next.setTo(255, newWhite);
-        current = next;
-
-        // Подсчитываем, сколько серых пикселей осталось
-        cv::Mat remainUnion;
-        cv::bitwise_or(newBlack, newWhite, remainUnion);
-        cv::Mat remainGray;
-        cv::bitwise_not(remainUnion, remainGray);
-        int grayCount = cv::countNonZero(remainGray);
-
-        if (grayCount == prevGray)
-            break;            // прекращаем, если число серых не меняется
-        prevGray = grayCount;
+        /* ===== 2. БЕЛЫЙ шаг: dilate → пересечение с gray ===== */
+        cv::dilate(white, tmp, kernel);               // tmp = dilate(white)
+        cv::bitwise_and(tmp, gray, newMask);          // новые белые
+        if (cv::countNonZero(newMask))
+        {
+            white |= newMask;                         // white ← white ∪ new
+            cv::bitwise_not(newMask, invGray);
+            gray &= invGray;                          // gray ← gray \ new
+        }
     }
 
-    if (type != CV_8U)
-    {
-        cv::Mat res;
-        current.convertTo(res, type, 1.0 / 255.0);
-        return res;
-    }
+    showMat("BLACK proc", black);
+    showMat("WHITE proc", white);
+    showMat("Gray proc", gray);
 
-    return current;
+    /* ---------- сборка итогового изображения ---------- */
+    cv::Mat dst(src.size(), CV_8UC1, cv::Scalar(GRAY));   // базово — серый
+    dst.setTo(0, black);
+    dst.setTo(254, white);
+
+    showMat("dst", dst);
+    return dst;    // RVO/NRVO или перемещение — без лишних копий
 }
 
 // Удаляет "серые островки" – области неизвестных пикселей,
@@ -384,6 +363,9 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
 
     // Устраняем серые (неизвестные) зоны перед дальнейшей обработкой
     cv::Mat preprocessed = unknownRegionsDissolution(raw);
+    cv::Mat out;
+    preprocessed.convertTo(out, CV_8U, 255);
+    showMat("unknownRegionsDissolution", out);
 
     // Создаем бинарную карту для определения области кадрирования.
     cv::Mat binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
