@@ -1,21 +1,28 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>mapannotator</name>
-  <version>0.0.0</version>
+  <version>0.1.0</version>
   <description>Map segmentation and PDDL generation node.</description>
-  <maintainer email="user@example.com">User</maintainer>
+
+  <maintainer email="radtarasov@gmail.com">ARDev1161</maintainer>
   <license>MIT</license>
 
+  <!-- build system -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- common deps -->
   <depend>rclcpp</depend>
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
+
+  <!-- system/third-party libs -->
   <build_depend>opencv4</build_depend>
   <build_depend>yaml-cpp</build_depend>
-
   <exec_depend>opencv4</exec_depend>
   <exec_depend>yaml-cpp</exec_depend>
 
-  <export/>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>
+
