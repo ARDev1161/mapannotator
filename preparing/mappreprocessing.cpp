@@ -6,6 +6,7 @@
 #include <opencv2/core.hpp>
 #include <algorithm>
 #include <cmath>
+#include <queue>
 
 // Функция находит корректировку ориентации карты по контурам.
 // Если изображение имеет тип CV_32F (значения [0,1]), оно преобразуется в CV_8U.
@@ -241,6 +242,79 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     return current;
 }
 
+cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity)
+{
+    CV_Assert(!src.empty());
+    CV_Assert(connectivity == 4 || connectivity == 8);
+
+    int type = src.type();
+    cv::Mat work;
+    if (type != CV_8U)
+        src.convertTo(work, CV_8U, 255.0);
+    else
+        work = src.clone();
+
+    cv::Mat visited = cv::Mat::zeros(work.size(), CV_8U);
+    std::queue<cv::Point> q;
+    for (int y = 0; y < work.rows; ++y)
+    {
+        for (int x = 0; x < work.cols; ++x)
+        {
+            if (work.at<uchar>(y, x) == 0)
+            {
+                visited.at<uchar>(y, x) = 1;
+                q.emplace(x, y);
+            }
+        }
+    }
+
+    std::vector<cv::Point> dirs;
+    if (connectivity == 4)
+        dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+    else
+        dirs = { {1,0}, {-1,0}, {0,1}, {0,-1}, {1,1}, {1,-1}, {-1,1}, {-1,-1} };
+
+    while (!q.empty())
+    {
+        cv::Point p = q.front();
+        q.pop();
+        for (const auto& d : dirs)
+        {
+            int nx = p.x + d.x;
+            int ny = p.y + d.y;
+            if (nx < 0 || ny < 0 || nx >= work.cols || ny >= work.rows)
+                continue;
+            if (visited.at<uchar>(ny, nx))
+                continue;
+            uchar val = work.at<uchar>(ny, nx);
+            if (val == 255)
+                continue;
+            visited.at<uchar>(ny, nx) = 1;
+            q.emplace(nx, ny);
+        }
+    }
+
+    cv::Mat result = work.clone();
+    for (int y = 0; y < work.rows; ++y)
+    {
+        for (int x = 0; x < work.cols; ++x)
+        {
+            uchar val = work.at<uchar>(y, x);
+            if (val != 0 && val != 255 && !visited.at<uchar>(y, x))
+                result.at<uchar>(y, x) = 255;
+        }
+    }
+
+    if (type != CV_8U)
+    {
+        cv::Mat res;
+        result.convertTo(res, type, 1.0 / 255.0);
+        return res;
+    }
+
+    return result;
+}
+
 // Реализация генерации денойзенной карты.
 // Здесь вызываются функции из Segmentation для бинаризации, кадрирования, инверсии и удаления шумовых компонентов.
 std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlone(const cv::Mat& raw,
@@ -256,6 +330,7 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
     // Освобождаем память, если необходимо.
     // Обрезаем исходное изображение до ROI.
     cv::Mat rank = Segmentation::cropBackground(preprocessed, cropInfo);
+    rank = removeGrayIslands(rank);
 
     // Применяем бинаризацию для удаления шума.
     rank = makeBinary(rank, config.binaryThreshold * 255, 255);

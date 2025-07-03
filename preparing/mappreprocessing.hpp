@@ -47,6 +47,11 @@ public:
                                              int kernelSize = 3,
                                              int maxIter = 100);
 
+    /**
+     * Remove grey regions that are not connected with black pixels.
+     */
+    static cv::Mat removeGrayIslands(const cv::Mat& src, int connectivity = 8);
+
     static bool mapAlign(const cv::Mat& raw, cv::Mat& out, const AlignmentConfig& config);
 };
 
