@@ -39,6 +39,14 @@ public:
     /** Generate a denoised map and cropping info using Segmentation helpers. */
     static std::pair<cv::Mat, Segmentation::CropInfo> generateDenoisedAlone(const cv::Mat& raw, const DenoiseConfig& config);
 
+    /**
+     * Resolve unknown (grey) regions by iteratively expanding black and
+     * white areas until convergence.
+     */
+    static cv::Mat unknownRegionsDissolution(const cv::Mat& src,
+                                             int kernelSize = 3,
+                                             int maxIter = 100);
+
     static bool mapAlign(const cv::Mat& raw, cv::Mat& out, const AlignmentConfig& config);
 };
 
