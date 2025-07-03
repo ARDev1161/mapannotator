@@ -207,10 +207,20 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
 {
     CV_Assert(!src.empty());
 
+    // Функция заполняет серые (неизвестные) области карты. Процесс
+    // напоминает «затекание» чёрного и белого цветов в серые зоны:
+    //   1) чёрный расширяется на один пиксель;
+    //   2) удаляются результаты расширения, которые не соприкасаются с
+    //      серым (т.е. вторжение в белое отменяется);
+    //   3) белый аналогично расширяется в оставшийся серый фон;
+    //   4) расширение белого откатывается там, где оно столкнулось с
+    //      чёрным. Итерации повторяются, пока серых пикселей не станет
+    //   меньше или не будет достигнут лимит `maxIter`.
+
     int type = src.type();
     cv::Mat current;
     if (type != CV_8U)
-        src.convertTo(current, CV_8U, 255.0);
+        src.convertTo(current, CV_8U, 255.0);  // приводим к диапазону [0,255]
     else
         current = src.clone();
 
@@ -220,15 +230,57 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     int prevGray = -1;
     for (int i = 0; i < maxIter; ++i)
     {
-        cv::erode(current, current, kernel);
-        cv::dilate(current, current, kernel);
+        // Маски исходных пикселей
+        cv::Mat blackMask = (current == 0);
+        cv::Mat whiteMask = (current == 255);
 
+        cv::Mat bwUnion;
+        cv::bitwise_or(blackMask, whiteMask, bwUnion);
         cv::Mat grayMask;
-        cv::inRange(current, 1, 254, grayMask); // pixels that are neither black nor white
-        int grayCount = cv::countNonZero(grayMask);
+        cv::bitwise_not(bwUnion, grayMask); // все, что не чёрное и не белое
+
+        // --- шаги 1-2: расширяем чёрный только в сторону серого ---
+        cv::Mat blackDilated;
+        cv::dilate(blackMask, blackDilated, kernel);
+
+        cv::Mat grayDilated;
+        cv::dilate(grayMask, grayDilated, kernel);
+
+        cv::Mat newBlack;
+        cv::bitwise_and(blackDilated, grayDilated, newBlack); // куда можно расти
+        cv::bitwise_or(blackMask, newBlack, newBlack);
+
+        // --- оставшийся после чёрного серый фон ---
+        cv::Mat afterBlackUnion;
+        cv::bitwise_or(newBlack, whiteMask, afterBlackUnion);
+        cv::Mat grayAfterBlack;
+        cv::bitwise_not(afterBlackUnion, grayAfterBlack);
+
+        // --- шаги 3-4: расширяем белый только в оставшийся серый ---
+        cv::Mat whiteDilated;
+        cv::dilate(whiteMask, whiteDilated, kernel);
+
+        cv::Mat grayDilated2;
+        cv::dilate(grayAfterBlack, grayDilated2, kernel);
+
+        cv::Mat newWhite;
+        cv::bitwise_and(whiteDilated, grayDilated2, newWhite);
+        cv::bitwise_or(whiteMask, newWhite, newWhite);
+
+        cv::Mat next(current.size(), CV_8U, cv::Scalar(127));
+        next.setTo(0, newBlack);
+        next.setTo(255, newWhite);
+        current = next;
+
+        // Подсчитываем, сколько серых пикселей осталось
+        cv::Mat remainUnion;
+        cv::bitwise_or(newBlack, newWhite, remainUnion);
+        cv::Mat remainGray;
+        cv::bitwise_not(remainUnion, remainGray);
+        int grayCount = cv::countNonZero(remainGray);
 
         if (grayCount == prevGray)
-            break;
+            break;            // прекращаем, если число серых не меняется
         prevGray = grayCount;
     }
 
@@ -242,6 +294,9 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     return current;
 }
 
+// Удаляет "серые островки" – области неизвестных пикселей,
+// которые не имеют связи с чёрными клетками карты.
+// Чёрным считаются значения 0, белым – 255, все остальные оттенки – серые.
 cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity)
 {
     CV_Assert(!src.empty());
@@ -249,13 +304,17 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
 
     int type = src.type();
     cv::Mat work;
+    // Для удобства работы приводим изображение к CV_8U (0..255).
     if (type != CV_8U)
         src.convertTo(work, CV_8U, 255.0);
     else
         work = src.clone();
 
+    // Очередь для обхода и матрица посещённых пикселей.
     cv::Mat visited = cv::Mat::zeros(work.size(), CV_8U);
     std::queue<cv::Point> q;
+
+    // Стартовые точки обхода – все чёрные пиксели.
     for (int y = 0; y < work.rows; ++y)
     {
         for (int x = 0; x < work.cols; ++x)
@@ -268,12 +327,14 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
         }
     }
 
+    // Варианты смещений соседей: 4- или 8-связность.
     std::vector<cv::Point> dirs;
     if (connectivity == 4)
         dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
     else
         dirs = { {1,0}, {-1,0}, {0,1}, {0,-1}, {1,1}, {1,-1}, {-1,1}, {-1,-1} };
 
+    // BFS: отмечаем все пиксели, достижимые из чёрных через не-белые клетки.
     while (!q.empty())
     {
         cv::Point p = q.front();
@@ -287,13 +348,14 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
             if (visited.at<uchar>(ny, nx))
                 continue;
             uchar val = work.at<uchar>(ny, nx);
-            if (val == 255)
+            if (val == 255) // белый пиксель не проходим
                 continue;
             visited.at<uchar>(ny, nx) = 1;
             q.emplace(nx, ny);
         }
     }
 
+    // Перекрашиваем серые пиксели, которые не были помечены как достижимые.
     cv::Mat result = work.clone();
     for (int y = 0; y < work.rows; ++y)
     {
@@ -301,7 +363,7 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
         {
             uchar val = work.at<uchar>(y, x);
             if (val != 0 && val != 255 && !visited.at<uchar>(y, x))
-                result.at<uchar>(y, x) = 255;
+                result.at<uchar>(y, x) = 255; // изолированный "остров" -> белый
         }
     }
 
