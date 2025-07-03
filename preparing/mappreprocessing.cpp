@@ -207,10 +207,20 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
 {
     CV_Assert(!src.empty());
 
+    // Функция заполняет серые (неизвестные) области карты. Процесс
+    // напоминает «затекание» чёрного и белого цветов в серые зоны:
+    //   1) чёрный расширяется на один пиксель;
+    //   2) удаляются результаты расширения, которые не соприкасаются с
+    //      серым (т.е. вторжение в белое отменяется);
+    //   3) белый аналогично расширяется в оставшийся серый фон;
+    //   4) расширение белого откатывается там, где оно столкнулось с
+    //      чёрным. Итерации повторяются, пока серых пикселей не станет
+    //   меньше или не будет достигнут лимит `maxIter`.
+
     int type = src.type();
     cv::Mat current;
     if (type != CV_8U)
-        src.convertTo(current, CV_8U, 255.0);
+        src.convertTo(current, CV_8U, 255.0);  // приводим к диапазону [0,255]
     else
         current = src.clone();
 
@@ -220,15 +230,57 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     int prevGray = -1;
     for (int i = 0; i < maxIter; ++i)
     {
-        cv::erode(current, current, kernel);
-        cv::dilate(current, current, kernel);
+        // Маски исходных пикселей
+        cv::Mat blackMask = (current == 0);
+        cv::Mat whiteMask = (current == 255);
 
+        cv::Mat bwUnion;
+        cv::bitwise_or(blackMask, whiteMask, bwUnion);
         cv::Mat grayMask;
-        cv::inRange(current, 1, 254, grayMask); // pixels that are neither black nor white
-        int grayCount = cv::countNonZero(grayMask);
+        cv::bitwise_not(bwUnion, grayMask); // все, что не чёрное и не белое
+
+        // --- шаги 1-2: расширяем чёрный только в сторону серого ---
+        cv::Mat blackDilated;
+        cv::dilate(blackMask, blackDilated, kernel);
+
+        cv::Mat grayDilated;
+        cv::dilate(grayMask, grayDilated, kernel);
+
+        cv::Mat newBlack;
+        cv::bitwise_and(blackDilated, grayDilated, newBlack); // куда можно расти
+        cv::bitwise_or(blackMask, newBlack, newBlack);
+
+        // --- оставшийся после чёрного серый фон ---
+        cv::Mat afterBlackUnion;
+        cv::bitwise_or(newBlack, whiteMask, afterBlackUnion);
+        cv::Mat grayAfterBlack;
+        cv::bitwise_not(afterBlackUnion, grayAfterBlack);
+
+        // --- шаги 3-4: расширяем белый только в оставшийся серый ---
+        cv::Mat whiteDilated;
+        cv::dilate(whiteMask, whiteDilated, kernel);
+
+        cv::Mat grayDilated2;
+        cv::dilate(grayAfterBlack, grayDilated2, kernel);
+
+        cv::Mat newWhite;
+        cv::bitwise_and(whiteDilated, grayDilated2, newWhite);
+        cv::bitwise_or(whiteMask, newWhite, newWhite);
+
+        cv::Mat next(current.size(), CV_8U, cv::Scalar(127));
+        next.setTo(0, newBlack);
+        next.setTo(255, newWhite);
+        current = next;
+
+        // Подсчитываем, сколько серых пикселей осталось
+        cv::Mat remainUnion;
+        cv::bitwise_or(newBlack, newWhite, remainUnion);
+        cv::Mat remainGray;
+        cv::bitwise_not(remainUnion, remainGray);
+        int grayCount = cv::countNonZero(remainGray);
 
         if (grayCount == prevGray)
-            break;
+            break;            // прекращаем, если число серых не меняется
         prevGray = grayCount;
     }
 
