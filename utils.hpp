@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <filesystem>
+#include <cmath>
 #include <opencv2/opencv.hpp>
 
 /** Basic parameters describing the map. */
@@ -33,6 +34,21 @@ static cv::Point2d pixelToWorld(const cv::Point2d & pixel, const MapInfo & mapPa
     double world_x = mapParams.originX + x_map * cos(mapParams.theta) - y_map * sin(mapParams.theta);
     double world_y = mapParams.originY + x_map * sin(mapParams.theta) + y_map * cos(mapParams.theta);
     return cv::Point2d(world_x, world_y);
+}
+
+/**
+ * Convert world coordinates back to pixel coordinates.
+ */
+static cv::Point2d worldToPixel(const cv::Point2d & world, const MapInfo & mapParams) {
+    double dx = world.x - mapParams.originX;
+    double dy = world.y - mapParams.originY;
+
+    double x_map =  dx * cos(mapParams.theta) + dy * sin(mapParams.theta);
+    double y_map = -dx * sin(mapParams.theta) + dy * cos(mapParams.theta);
+
+    double px = x_map / mapParams.resolution - 0.5;
+    double py = mapParams.height - (y_map / mapParams.resolution + 0.5);
+    return cv::Point2d(px, py);
 }
 
 /// Load map from file as an 8-bit BGR image.

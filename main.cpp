@@ -18,88 +18,11 @@
 #include "config.hpp"
 #include "utils.hpp"
 #include "map_processing.hpp"
+#include "visualization.hpp"
 
 using namespace mapping;
 
 #define SHOW_DEBUG_IMAGES
-
-/**
- * @param  seg        CV_32S: 0 = стены/фон, ≥1 = код зоны
- * @param  winName    название окна для cv::imshow ("" → не показывать)
- * @param  pngPath    куда сохранить PNG ("" → не сохранять)
- * @param  colormap   см. COLORMAP_* (например, COLORMAP_JET, HOT, VIRIDIS …)
- */
-cv::Mat3b colorizeSegmentation(const cv::Mat1i& seg,
-                               const cv::Mat1b& wallMask,
-                               const std::string& winName  = "Segmentation",
-                               std::string      pngPath  = "segmentation.png",
-                               int              colormap = cv::COLORMAP_JET)
-{
-    CV_Assert(!seg.empty() && seg.type() == CV_32S);
-
-    /* 1.  нормируем [0 .. maxLabel] → [0 .. 255]  ------------------------- */
-    double minVal, maxVal;
-    cv::minMaxLoc(seg, &minVal, &maxVal);
-    double scale = (maxVal > 0) ? 255.0 / maxVal : 1.0;
-
-    cv::Mat1b seg8u;
-    seg.convertTo(seg8u, CV_8U, scale);       // CV_8U для applyColorMap
-
-    /* 2.  применяем цветовую карту  --------------------------------------- */
-    cv::Mat3b color;
-//    cv::Mat1i hashed = (seg * 1315423911u) & 0xFF;   // простое хеш-перемешивание
-//    hashed.convertTo(seg8u, CV_8U);
-    cv::applyColorMap(seg8u, color, colormap);
-
-    /* 3.  делаем фон серым для контраста (опц.) -------------------- */
-    // фон = те же пиксели, что были 0 в seg (т.е. seg8u == 0)
-    color.setTo(cv::Vec3b(50,50,50), seg8u == 0);
-
-    // добавляем стены
-    double alpha = 0.9;                  // непрозрачность 0…1 (0.6 = 60 %)
-    cv::Scalar wallColor(0, 0, 0);     // чёрные стены (BGR)
-
-    /* создаём BGR-картинку только для стен */
-    cv::Mat overlay(color.size(), color.type(), wallColor);
-
-    /* смешиваем: dst = imgColor*(1-α) + overlay*α  только там, где стена */
-    cv::Mat blended = color.clone();
-    overlay.copyTo(blended, wallMask);   // overlay → blended (там, где стена)
-
-    /* linearBlend = img*(1-α) + blended*α, но только по маске */
-    cv::addWeighted(color, 1.0, blended, alpha, 0.0, blended);
-
-
-    /* 4.  вывод / сохранение --------------------------------------------- */
-    if (!winName.empty()) {
-        showMat(winName, blended);
-        cv::waitKey(0);
-    }
-    if (!pngPath.empty())
-        cv::imwrite(pngPath, blended);
-
-
-    return blended;                              // на случай дальнейшей работы
-}
-
-/**
- * @brief Построить маску области, достижимой из заданного центроида по свободным
- *        пикселям (значение 0) с помощью Flood Fill.
- *
- * @param freeMap    Одноканальная карта (CV_8UC1), где 0 — свободная ячейка,
- *                   любой ненулевой байт — препятствие/стена.
- * @param seed       Точка-центроид, откуда начинается заливка.
- * @param connectivity 4 или 8 (по умолчанию 8).
- * @return cv::Mat1b того же размера, где 255 помечает залитую область,
- *         0 — остальное.
- *
- * Примечания
- * ----------
- * 1.  Исходная карта **не** изменяется (используется FLOODFILL_MASK_ONLY).
- * 2.  Маска floodFill требует рамку в 1 пиксель; она удаляется перед возвратом.
- * 3.  Если seed лежит на препятствии, функция вернёт нулевую маску.
- */
-
 
 int main(int argc, char** argv)
 {
