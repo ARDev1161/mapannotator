@@ -1,10 +1,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <cmath>
 #include <sstream>
 #include <opencv2/opencv.hpp>
 #include "utils.hpp"
+#include "visualization.hpp"
 #include "config.hpp"
 #include "preparing/mappreprocessing.hpp"
 #include "segmentation/segmentation.hpp"
@@ -27,7 +29,8 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                        double sigma_step,
                                        double seg_threshold,
                                        const std::string &start_zone,
-                                       const std::string &goal_zone)
+                                       const std::string &goal_zone,
+                                       cv::Mat3b *vis_out = nullptr)
 {
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
@@ -51,6 +54,13 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, labels.centroids);
 
+    if (vis_out) {
+        cv::Mat1b wallMask;
+        cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);
+        *vis_out = colorizeSegmentation(segmentation, wallMask, "", "", cv::COLORMAP_JET);
+        mapping::drawZoneGraphOnMap(graph, *vis_out, mapInfo);
+    }
+
     PDDLGenerator gen(graph);
     std::ostringstream oss;
     oss << "(define (problem map_problem)\n"
@@ -69,6 +79,7 @@ public:
     {
         map_topic_  = this->declare_parameter("map_topic", std::string("/map"));
         pddl_topic_ = this->declare_parameter("pddl_topic", std::string("/pddl/map"));
+        segmentation_topic_ = this->declare_parameter("segmentation_topic", std::string("/mapannotator/segmentation"));
 
         config_.denoiseConfig.cropPadding =
             this->declare_parameter("denoise.crop_padding", 5);
@@ -91,6 +102,7 @@ public:
         map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
             map_topic_, 10, std::bind(&MapAnnotatorNode::mapCallback, this, _1));
         pddl_pub_ = this->create_publisher<std_msgs::msg::String>(pddl_topic_, 10);
+        segmentation_pub_ = this->create_publisher<sensor_msgs::msg::Image>(segmentation_topic_, 10);
     }
 
 private:
@@ -118,18 +130,30 @@ private:
         mapInfo.width = msg->info.width;
         mapInfo.height = msg->info.height;
 
+        cv::Mat3b vis;
         std::string pddl = generatePddlFromMap(map, config_,
                                               seg_max_iter_, seg_sigma_step_, seg_threshold_,
-                                              start_zone_, goal_zone_);
+                                              start_zone_, goal_zone_, &vis);
         std_msgs::msg::String out;
         out.data = pddl;
         pddl_pub_->publish(out);
+
+        sensor_msgs::msg::Image img_msg;
+        img_msg.header = msg->header;
+        img_msg.height = vis.rows;
+        img_msg.width = vis.cols;
+        img_msg.encoding = "bgr8";
+        img_msg.step = static_cast<sensor_msgs::msg::Image::_step_type>(vis.step);
+        img_msg.data.assign(vis.datastart, vis.dataend);
+        segmentation_pub_->publish(img_msg);
     }
 
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pddl_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr segmentation_pub_;
     std::string map_topic_;
     std::string pddl_topic_;
+    std::string segmentation_topic_;
     SegmenterConfig config_;
     int seg_max_iter_;
     double seg_sigma_step_;

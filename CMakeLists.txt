@@ -11,6 +11,7 @@ find_package(YAML-CPP REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 set(ZONEGRAPH_SRC
     mapgraph/zonegraph.hpp mapgraph/zonegraph.cpp
@@ -57,7 +58,8 @@ target_link_libraries(mapannotator_ros2
 ament_target_dependencies(mapannotator_ros2
                           rclcpp
                           nav_msgs
-                          std_msgs)
+                          std_msgs
+                          sensor_msgs)
 
 install(TARGETS ${PROJECT_NAME} mapannotator_ros2
         RUNTIME DESTINATION lib/${PROJECT_NAME})
