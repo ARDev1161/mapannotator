@@ -19,6 +19,7 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
 void buildGraph(mapping::ZoneGraph &graphOut,
                 std::vector<ZoneMask> zones,
                 cv::Mat1i zonesMat,
+                const MapInfo & mapParams,
                 std::unordered_map<int, cv::Point> centroids);
 
 #endif // MAP_PROCESSING_HPP

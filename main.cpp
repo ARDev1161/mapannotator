@@ -154,7 +154,7 @@ int main(int argc, char** argv)
         segmentation.setTo(z.label, z.mask);
     }
 
-    cv::Mat1i  seg = segmentation;                     // ваша сегментация (0 = стены)
+    cv::Mat1i seg = segmentation;                     // ваша сегментация (0 = стены)
     double minVal, maxVal;
     cv::minMaxLoc(seg, &minVal, &maxVal);     // нужен maxVal ≥ 1
     cv::Mat1b gray8;
@@ -162,10 +162,13 @@ int main(int argc, char** argv)
                   maxVal ? 255.0 / maxVal : 1.0,   // α (scale)
                   0);                              // β (shift)
 
-    cv::imshow("Segmentation", gray8);
-
     ZoneGraph graph;
-    buildGraph(graph, zones, segmentation, labels.centroids);
+    buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
+
+    cv::Mat vis = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
+    mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
+
+    cv::imshow("segmented", vis);
 
     PDDLGenerator gen(graph);
     std::cerr << "\(define \(problem PROBLEM_NAME)\n"
@@ -182,13 +185,6 @@ int main(int argc, char** argv)
     //    out << gen.init("zone_1");
     //    out << gen.goal("zone_15");
     //    out << ")\n";
-
-    cv::Mat3b vis = colorizeSegmentation(segmentation, wallMask,
-                    "Rooms colored",
-                    "rooms.png",
-                    cv::COLORMAP_JET);
-
-
 
     std::cout << "Press any key to exit..." << std::endl;
     cv::waitKey(0);

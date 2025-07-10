@@ -30,7 +30,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                        double seg_threshold,
                                        const std::string &start_zone,
                                        const std::string &goal_zone,
-                                       cv::Mat3b *vis_out = nullptr)
+                                       cv::Mat *vis_out = nullptr)
 {
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
@@ -52,12 +52,12 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
         segmentation.setTo(z.label, z.mask);
 
     ZoneGraph graph;
-    buildGraph(graph, zones, segmentation, labels.centroids);
+    buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
     if (vis_out) {
         cv::Mat1b wallMask;
         cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);
-        *vis_out = colorizeSegmentation(segmentation, wallMask, "", "", cv::COLORMAP_JET);
+        *vis_out = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
         mapping::drawZoneGraphOnMap(graph, *vis_out, mapInfo);
     }
 
@@ -130,10 +130,13 @@ private:
         mapInfo.width = msg->info.width;
         mapInfo.height = msg->info.height;
 
-        cv::Mat3b vis;
+        cv::Mat vis;
         std::string pddl = generatePddlFromMap(map, config_,
                                               seg_max_iter_, seg_sigma_step_, seg_threshold_,
                                               start_zone_, goal_zone_, &vis);
+
+        cv::imshow("segmented", vis);
+
         std_msgs::msg::String out;
         out.data = pddl;
         pddl_pub_->publish(out);

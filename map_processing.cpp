@@ -98,7 +98,7 @@ static void annotateGraph(ZoneGraph &graph, const std::string &rulefile)
 //  buildGraph()
 //--------------------------------------------------------------------------
 void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
-                cv::Mat1i zonesMat,
+                cv::Mat1i zonesMat, const MapInfo & mapParams,
                 std::unordered_map<int, cv::Point> centroids)
 {
     std::unordered_map<ZoneType, NodePtr> node;   // для удобства соединений
@@ -127,7 +127,7 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
         // размещаем вершины (координаты в «метрах»)
         add(centroid.first,
             ZoneType{},
-            pixelToWorld(centroid.second, mapInfo),
+            pixelToWorld(centroid.second, mapParams),
             computeWhiteArea(zoneIndex[centroid.first], kAreaPerPixel),
             10);
 
