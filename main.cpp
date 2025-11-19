@@ -175,13 +175,23 @@ int main(int argc, char** argv)
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
-    cv::Mat vis = renderZonesOverlay(zones, rank, 0.65);
-    mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
+    cv::Mat baseGray = aligned.empty() ? raw8u : aligned.clone();
+    if (baseGray.channels() > 1)
+        cv::cvtColor(baseGray, baseGray, cv::COLOR_BGR2GRAY);
+    cv::Mat baseColor;
+    cv::cvtColor(baseGray, baseColor, cv::COLOR_GRAY2BGR);
+    cv::Rect roi(cropInfo.left,
+                 cropInfo.top,
+                 rank.cols,
+                 rank.rows);
+    cv::Mat visRoi = renderZonesOverlay(zones, baseGray(roi), 0.65);
+    visRoi.copyTo(baseColor(roi));
+    mapping::drawZoneGraphOnMap(graph, baseColor, mapInfo);
 
-    cv::imwrite("segmentation_overlay.png", vis);
+    cv::imwrite("segmentation_overlay.png", baseColor);
     if(!isHeadlessMode())
     {
-        cv::imshow("segmented", vis);
+        cv::imshow("segmented", baseColor);
     }
 
     PDDLGenerator gen(graph);
