@@ -1,0 +1,3 @@
+# Default configuration placeholder for mapannotator CLI.
+# At the moment the binary only needs the file to exist so we keep it empty,
+# but the structure can be extended later.

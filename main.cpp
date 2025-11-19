@@ -178,7 +178,10 @@ int main(int argc, char** argv)
     cv::Mat vis = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
     mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
 
-    cv::imshow("segmented", vis);
+    if(!isHeadlessMode())
+    {
+        cv::imshow("segmented", vis);
+    }
 
     PDDLGenerator gen(graph);
     std::cerr << "\(define \(problem PROBLEM_NAME)\n"
@@ -196,6 +199,9 @@ int main(int argc, char** argv)
     //    out << gen.goal("zone_15");
     //    out << ")\n";
 
-    std::cout << "Press any key to exit..." << std::endl;
-    cv::waitKey(0);
+    if(!isHeadlessMode())
+    {
+        std::cout << "Press any key to exit..." << std::endl;
+        cv::waitKey(0);
+    }
 }

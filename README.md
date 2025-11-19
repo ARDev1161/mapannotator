@@ -145,6 +145,7 @@ and creates visual previews of the computed zones.
 - `docs/architecture_comparison.png` – сравнение пайплайнов статьи и Map Annotator
 - `docs/architecture.png` – обзорная архитектура пайплайна
 - `docs/semantic_actions.png` – последовательность семантических шагов
+- `default.yml` – минимальный конфиг по умолчанию для CLI
 - `scripts/batch_segment.py` – офлайн скрипт для прогонки `mapannotator` на
   всех картах из `test_maps` (см. раздел ниже)
 
@@ -165,7 +166,8 @@ python scripts/batch_segment.py \
 `graph.dot` и `graph_preview.png`, а также summary YAML. Структура подпапок
 в `test_maps` сохраняется в `batch_results`. Если рядом с `.pgm` лежит
 `map.yaml`/`map.yml` или файл с тем же именем и расширением `.yaml`/`.yml`,
-он будет подставлен автоматически; для кастомного конфигурационного файла можно
+он будет подставлен автоматически; при отсутствии такого файла скрипт подставит
+`default.yml`. Для кастомного конфигурационного файла можно
 передать `--config path/to/custom.yml`.
 
 ## License

@@ -16,6 +16,7 @@ matching *.yaml metadata, runs the CLI for each map and stores artefacts
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("MAPANNOTATOR_HEADLESS", "1")
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +58,12 @@ def parse_args() -> argparse.Namespace:
         "--config",
         type=Path,
         help="Optional YAML config passed as the second CLI argument",
+    )
+    parser.add_argument(
+        "--default-config",
+        type=Path,
+        default=Path("default.yml"),
+        help="Fallback config used when a map has no accompanying YAML",
     )
     parser.add_argument(
         "--clean-artifacts",
@@ -91,11 +102,15 @@ def run_cli(
     config_file: Optional[Path],
     workdir: Path,
 ) -> subprocess.CompletedProcess:
-    cmd = [str(binary), str(map_file)]
-    if meta_file is not None and meta_file.is_file():
-        cmd.append(str(meta_file))
-    elif config_file is not None:
-        cmd.append(str(config_file))
+    abs_map = map_file.resolve()
+    abs_meta = meta_file.resolve() if meta_file else None
+    abs_config = config_file.resolve() if config_file else None
+
+    cmd = [str(binary), str(abs_map)]
+    if abs_meta is not None and abs_meta.is_file():
+        cmd.append(str(abs_meta))
+    elif abs_config is not None:
+        cmd.append(str(abs_config))
     # When both meta and config are provided, meta takes precedence as the CLI
     # expects the second argument to be the map yaml. Users can bake additional
     # config into default.yml if needed.
@@ -200,10 +215,13 @@ def process_map(
 
 def main() -> int:
     args = parse_args()
-    binary = args.binary
-    maps_dir = args.maps_dir
-    output_dir = args.output_dir
-    config_file = args.config
+    binary = args.binary.resolve()
+    maps_dir = args.maps_dir.resolve()
+    output_dir = args.output_dir.resolve()
+    config_file = args.config.resolve() if args.config else None
+    default_config = args.default_config.resolve()
+    if config_file is None and default_config.is_file():
+        config_file = default_config
 
     if not binary.is_file():
         print(f"Binary not found: {binary}", file=sys.stderr)
@@ -221,7 +239,7 @@ def main() -> int:
             maps_root=maps_dir,
             config_file=config_file,
             output_root=output_dir,
-            workdir=binary.parent.resolve(),
+            workdir=PROJECT_ROOT,
             clean_artifacts_flag=args.clean_artifacts,
         )
         summaries.append(summary)

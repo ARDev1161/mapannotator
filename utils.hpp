@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
+#include <cstring>
 #include <cmath>
 #include <opencv2/opencv.hpp>
 
@@ -237,9 +239,20 @@ static inline bool toDisplayable(const cv::Mat& src,
     return true;
 }
 
+inline bool isHeadlessMode() {
+    static bool headless = [](){
+        if (const char* env = std::getenv("MAPANNOTATOR_HEADLESS"))
+            return std::strcmp(env, "0") != 0;
+        return false;
+    }();
+    return headless;
+}
+
 static void showMat(const std::string &windowName, const cv::Mat &mat, bool isColor = true)
 {
 #ifdef SHOW_DEBUG_IMAGES
+    if (isHeadlessMode())
+        return;
     cv::Mat vis;
     if(toDisplayable(mat, vis, isColor))
     {
