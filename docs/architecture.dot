@@ -1,0 +1,55 @@
+digraph Architecture {
+    rankdir=LR;
+    node [shape=rectangle, style=filled, fillcolor="#f0f4ff", color="#4c6ef5", fontname="Helvetica"];
+
+    subgraph cluster_inputs {
+        label="Источники карты";
+        style=filled;
+        color="#d0d7ff";
+        pgm [label="PGM карта\n(main.cpp)"];
+        ros [label="ROS 2 OccupancyGrid\n(ros2_node.cpp)"];
+    }
+
+    subgraph cluster_pre {
+        label="Предобработка";
+        style=filled;
+        color="#d3f9d8";
+        align [label="MapPreprocessing::mapAlign\n(alignment)"];
+        denoise [label="MapPreprocessing::generateDenoisedAlone\n(denoise & crop)"];
+        morph [label="Binary dilation / erosion\n(utils.hpp)"];
+    }
+
+    subgraph cluster_seg {
+        label="Сегментация";
+        style=filled;
+        color="#ffe3e3";
+        gauss [label="Gaussian threshold sweep\n(segmentByGaussianThreshold)"];
+        labelmap [label="LabelMapping & centroid tracking"];
+    }
+
+    subgraph cluster_graph {
+        label="Граф семантических зон";
+        style=filled;
+        color="#fff3bf";
+        graphbuild [label="buildGraph\n(zonegraph + adjacency)"];
+        classify [label="ZoneClassifier\n(config/rules.yaml)"];
+    }
+
+    subgraph cluster_outputs {
+        label="Выходы";
+        style=filled;
+        color="#dee2e6";
+        pddl [label="PDDLGenerator\n(problem description)"];
+        viz [label="Visualization\n(colorize + drawZoneGraph)"];
+        rosout [label="ROS 2 topics\n/pddl/map, /mapannotator/segmentation"];
+    }
+
+    pgm -> align;
+    ros -> align;
+    align -> denoise -> morph -> gauss -> labelmap -> graphbuild -> classify;
+    classify -> pddl;
+    classify -> viz;
+    pddl -> rosout;
+    viz -> rosout;
+    graphbuild -> viz [style=dashed];
+}

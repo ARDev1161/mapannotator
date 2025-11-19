@@ -1,8 +1,81 @@
 # Map Annotator
 
-A prototype tool for segmenting indoor maps and generating a zone graph. The
-project can also produce PDDL descriptions of the resulting graph for robotic
-planning experiments.
+Инструмент для семантической сегментации двумерных карт помещений, построения
+графа зон и генерации описаний задач в формате PDDL для экспериментов с
+планированием траекторий роботов. Проект можно запускать как из консоли, так и
+в виде ROS 2 ноды, потребляющей `nav_msgs/OccupancyGrid`.
+
+## Возможности
+
+- нормализация карты, удаление шума и корректировка занятых/свободных областей;
+- поиск семян зон по центроидам и мульти-сигмовая сегментация свободного
+  пространства;
+- построение графа смежности зон с привязкой к мировым координатам и правилами
+  семантической классификации (`config/rules.yaml`);
+- генерация PDDL-задач и цветовых превью с отображением графа;
+- ROS 2 нода, публикующая результат в `/pddl/map` и `/mapannotator/segmentation`.
+
+## Архитектура
+
+![Архитектура пайплайна](docs/architecture.png)
+
+1. Источники карты: из файла `PGM` (+ `map.yaml`) или из ROS 2.
+2. Предобработка (`preparing/`, `utils.hpp`): выравнивание стен, денойзинг,
+   морфология.
+3. Сегментация (`segmentation/`, `map_processing.cpp`):
+   `segmentByGaussianThreshold`, `LabelMapping`, стягивание/слияние масок.
+4. Построение графа (`mapgraph/`): расчет смежности, преобразование пикселей в
+   мировые координаты, классификация правилом (`ZoneClassifier`).
+5. Выходы (`pddl/`, `visualization.hpp`, `ros2_node.cpp`): PDDL, визуализация и
+   публикация в ROS 2.
+
+## Последовательность семантических действий
+
+![Семантические шаги](docs/semantic_actions.png)
+
+1. Чтение карты и метаданных (`map.yaml` → `MapInfo`).
+2. Выравнивание и детектирование доминирующих стен (`MapPreprocessing::mapAlign`).
+3. Удаление шума + кадрирование (`generateDenoisedAlone`).
+4. Семантическая обработка препятствий (диляция/эрозия `erodeBinary`).
+5. Поиск центроидов и подготовка семян (`LabelMapping`).
+6. Итеративный Gaussian threshold sweep (разные сигмы).
+7. Постобработка: сохранение компоненты с центроидом, прилипания пикселей,
+   слияние «одиноких» областей.
+8. Построение графа смежности и перевод координат в метрическое пространство.
+9. Семантическая классификация правилом (`ZoneClassifier`, `config/rules.yaml`).
+10. Генерация PDDL и визуализаций (`PDDLGenerator`, `colorizeSegmentation`).
+
+## Точный режим сегментации
+
+В ветке `feature/downsample-segmentation` реализован «точный» режим,
+использующий многократное даун-сэмплирование свободного пространства и трекинг
+семян, вдохновлённый работой Sharif et al. (arXiv:2303.13798). Новые семена
+генерируются функцией `generateDownsampleSeeds`, после чего выполняются
+стандартные шаги прилипания пикселей и очистки (см. `map_processing.cpp`). Диаграмма
+ниже показывает, как ветки Map Annotator и статьи делят общие блоки пайплайна:
+
+![Сравнение пайплайнов](docs/architecture_comparison.png)
+
+Ключевые параметры точного режима:
+
+- `SegmentationParams::useDownsampleSeeds` — переключение между точным и
+  «наследуемым» быстрым алгоритмом;
+- `DownsampleSeedsConfig` (`sigmaStart`, `sigmaStep`, `maxIter`,
+  `threshold`, `backgroundKernel`) — управляют фильтрацией и
+  детекцией рождения/смерти семян;
+- ROS-параметры `segmentation.use_downsample_seeds`,
+  `segmentation.downsample_sigma_start`, `segmentation.background_kernel`
+  позволяют менять режим без пересборки.
+
+При включённом режиме итоговые зоны используют «листья» иерархии семян,
+что заметно уменьшает пере- и недо-сегментацию длинных коридоров.
+
+Файлы `docs/architecture.dot` и `docs/semantic_actions.dot` можно отредактировать
+и пересобрать изображения командой:
+
+```bash
+dot -Tpng docs/<diagram>.dot -o docs/<diagram>.png
+```
 
 ## Dependencies
 
@@ -37,12 +110,37 @@ The program expects a grayscale map image in `.pgm` format and an optional YAML
 configuration. It outputs diagnostic information, generates a PDDL problem file
 and creates visual previews of the computed zones.
 
+## Configuration
+
+- `map.yaml` — стандартный файл от SLAM/`map_server`, откуда читаются origin,
+  `resolution` и угол поворота. Эти данные сохраняются в `MapInfo` и
+  используются при переводе пикселей в мировые координаты.
+- `config/rules.yaml` — иерархия типов зон и набор приоритетных правил
+  классификатора. Доступные признаки: площадь `A`, аспект `AR`, окружность `C`,
+  количество соседей `N`, статистики ширины проходов `w_min`, `w_avg` и др.
+  Именно этот файл определяет семантику, попадающую в PDDL и визуализацию.
+- `ros2_node.cpp` экспортирует параметры, которые можно передавать через
+  `ros2 run ... --ros-args -p <name>:=<value>`:
+  - `map_topic`, `pddl_topic`, `segmentation_topic`;
+  - `denoise.crop_padding`, `denoise.rank_binary_threshold`;
+  - `dilate.kernel_size`, `dilate.iterations`;
+  - `alignment.enable`;
+  - `segmentation.max_iter`, `segmentation.sigma_step`,
+    `segmentation.threshold` — управляют как наследуемым,
+    так и точным режимом;
+  - `segmentation.use_downsample_seeds`, `segmentation.downsample_sigma_start`,
+    `segmentation.background_kernel` — параметры нового генератора семян;
+  - `start_zone`, `goal_zone` (имена в генерируемой PDDL).
+
 ## Repository structure
 
 - `segmentation/` – image processing and segmentation routines
 - `mapgraph/` – zone graph data structures and visualisation helpers
 - `pddl/` – utilities for generating PDDL from the graph
 - `config/` – example classification rules
+- `docs/architecture_comparison.png` – сравнение пайплайнов статьи и Map Annotator
+- `docs/architecture.png` – обзорная архитектура пайплайна
+- `docs/semantic_actions.png` – последовательность семантических шагов
 
 ## License
 

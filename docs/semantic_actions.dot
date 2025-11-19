@@ -1,0 +1,17 @@
+digraph SemanticActions {
+    rankdir=LR;
+    node [shape=box, style="rounded,filled", fillcolor="#f8f9fa", color="#5f3dc4", fontname="Helvetica"];
+
+    step1 [label="1. Чтение карты\nPGM + map.yaml"];
+    step2 [label="2. Нормализация позы\nвыравнивание стен"];
+    step3 [label="3. Очистка карты\nранговый фильтр + обрезка"];
+    step4 [label="4. Семантика препятствий\nэрозия/диляция стен"];
+    step5 [label="5. Семена областей\nLabelMapping центроиды"];
+    step6 [label="6. Мульти-сигма пороги\nGaussian threshold sweep"];
+    step7 [label="7. Уточнение зон\nattach/merge, keep centroid"];
+    step8 [label="8. Построение графа\nсмежность + метрические атрибуты"];
+    step9 [label="9. Семантическая классификация\nZoneClassifier по правилам"];
+    step10 [label="10. Планировочные артефакты\nPDDL + превью"];
+
+    step1 -> step2 -> step3 -> step4 -> step5 -> step6 -> step7 -> step8 -> step9 -> step10;
+}
