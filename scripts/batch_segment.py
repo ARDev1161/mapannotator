@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         help="Fallback config used when a map has no accompanying YAML",
     )
     parser.add_argument(
+        "--invert",
+        action="store_true",
+        help="Invert input PGM maps before processing (for test datasets with inverted colors)",
+    )
+    parser.add_argument(
         "--clean-artifacts",
         action="store_true",
         help="Remove global artefacts (graph.dot, graph_preview.png) before every run",
@@ -101,6 +106,7 @@ def run_cli(
     meta_file: Optional[Path],
     config_file: Optional[Path],
     workdir: Path,
+    invert: bool = False,
 ) -> subprocess.CompletedProcess:
     abs_map = map_file.resolve()
     abs_meta = meta_file.resolve() if meta_file else None
@@ -115,11 +121,16 @@ def run_cli(
     # expects the second argument to be the map yaml. Users can bake additional
     # config into default.yml if needed.
 
+    env = os.environ.copy()
+    if invert:
+        env["MAPANNOTATOR_INVERT_INPUT"] = "1"
+
     result = subprocess.run(
         cmd,
         cwd=str(workdir),
         capture_output=True,
         text=True,
+        env=env,
     )
     return result
 
@@ -160,6 +171,7 @@ def process_map(
     output_root: Path,
     workdir: Path,
     clean_artifacts_flag: bool,
+    invert: bool,
 ) -> Dict[str, Optional[str]]:
     rel_parent = map_file.parent.relative_to(maps_root)
     name = map_file.stem
@@ -171,7 +183,7 @@ def process_map(
         clean_global_artifacts(workdir, global_artifacts)
 
     meta = find_metadata(map_file)
-    result = run_cli(binary, map_file, meta, config_file, workdir)
+    result = run_cli(binary, map_file, meta, config_file, workdir, invert=invert)
 
     stdout_path = output_dir / "stdout.txt"
     stderr_path = output_dir / "stderr.txt"
@@ -241,6 +253,7 @@ def main() -> int:
             output_root=output_dir,
             workdir=PROJECT_ROOT,
             clean_artifacts_flag=args.clean_artifacts,
+            invert=args.invert,
         )
         summaries.append(summary)
         if summary["exit_code"] != 0:
