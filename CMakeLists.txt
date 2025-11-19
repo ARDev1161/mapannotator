@@ -2,16 +2,21 @@ cmake_minimum_required(VERSION 3.5)
 
 project(mapannotator LANGUAGES CXX)
 
+option(MAPANNOTATOR_BUILD_ROS2 "Build ROS 2 node mapannotator_ros2" ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(ament_cmake REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(YAML-CPP REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(nav_msgs REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
+
+if(MAPANNOTATOR_BUILD_ROS2)
+    find_package(ament_cmake REQUIRED)
+    find_package(rclcpp REQUIRED)
+    find_package(nav_msgs REQUIRED)
+    find_package(std_msgs REQUIRED)
+    find_package(sensor_msgs REQUIRED)
+endif()
 
 set(ZONEGRAPH_SRC
     mapgraph/zonegraph.hpp mapgraph/zonegraph.cpp
@@ -46,23 +51,28 @@ add_executable(${PROJECT_NAME} main.cpp
 
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)
 
-add_executable(mapannotator_ros2 ros2_node.cpp
-                               ${ZONEGRAPH_SRC}
-                               ${PREPARING_SRC}
-                               ${SEGMENTATION_SRC}
-                               ${PDDL_SRC}
-                               map_processing.cpp
-                               utils.hpp config.hpp)
-target_link_libraries(mapannotator_ros2
-                      ${OpenCV_LIBS} yaml-cpp)
+if(MAPANNOTATOR_BUILD_ROS2)
+    add_executable(mapannotator_ros2 ros2_node.cpp
+                                   ${ZONEGRAPH_SRC}
+                                   ${PREPARING_SRC}
+                                   ${SEGMENTATION_SRC}
+                                   ${PDDL_SRC}
+                                   map_processing.cpp
+                                   utils.hpp config.hpp)
+    target_link_libraries(mapannotator_ros2
+                          ${OpenCV_LIBS} yaml-cpp)
 
-ament_target_dependencies(mapannotator_ros2
-                          rclcpp
-                          nav_msgs
-                          std_msgs
-                          sensor_msgs)
+    ament_target_dependencies(mapannotator_ros2
+                              rclcpp
+                              nav_msgs
+                              std_msgs
+                              sensor_msgs)
 
-install(TARGETS ${PROJECT_NAME} mapannotator_ros2
+    install(TARGETS mapannotator_ros2
+            RUNTIME DESTINATION lib/${PROJECT_NAME})
+
+    ament_package()
+endif()
+
+install(TARGETS ${PROJECT_NAME}
         RUNTIME DESTINATION lib/${PROJECT_NAME})
-
-ament_package()
