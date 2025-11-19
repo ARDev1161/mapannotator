@@ -31,7 +31,7 @@ void buildGraph(mapping::ZoneGraph &graphOut,
                 std::unordered_map<int, cv::Point> centroids);
 
 cv::Mat renderZonesOverlay(const std::vector<ZoneMask> &zones,
-                           const cv::Mat1b &baseBinaryFull,
+                           const cv::Mat &baseImage,
                            const Segmentation::CropInfo &cropInfo,
                            double alpha = 0.65);
 

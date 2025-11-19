@@ -71,20 +71,24 @@ static cv::Vec3b labelColor(int label)
 }
 
 cv::Mat renderZonesOverlay(const std::vector<ZoneMask> &zones,
-                           const cv::Mat1b &baseBinaryFull,
+                           const cv::Mat &baseImage,
                            const Segmentation::CropInfo &cropInfo,
                            double alpha)
 {
-    CV_Assert(!baseBinaryFull.empty() && baseBinaryFull.type() == CV_8UC1);
+    CV_Assert(!baseImage.empty());
 
-    cv::Mat baseGray = baseBinaryFull.clone();
     cv::Mat baseColor;
-    cv::cvtColor(baseGray, baseColor, cv::COLOR_GRAY2BGR);
+    if (baseImage.channels() == 1)
+        cv::cvtColor(baseImage, baseColor, cv::COLOR_GRAY2BGR);
+    else if (baseImage.channels() == 3)
+        baseColor = baseImage.clone();
+    else
+        baseColor = baseImage.clone();
 
     cv::Rect roi(cropInfo.left,
                  cropInfo.top,
-                 baseBinaryFull.cols - cropInfo.left - cropInfo.right,
-                 baseBinaryFull.rows - cropInfo.top - cropInfo.bottom);
+                 baseColor.cols - cropInfo.left - cropInfo.right,
+                 baseColor.rows - cropInfo.top - cropInfo.bottom);
 
     CV_Assert(roi.width > 0 && roi.height > 0);
     cv::Mat roiView = baseColor(roi);
