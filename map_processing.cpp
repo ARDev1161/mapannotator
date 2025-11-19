@@ -71,24 +71,34 @@ static cv::Vec3b labelColor(int label)
 }
 
 cv::Mat renderZonesOverlay(const std::vector<ZoneMask> &zones,
-                           const cv::Mat1b &baseGray,
+                           const cv::Mat1b &baseBinaryFull,
+                           const Segmentation::CropInfo &cropInfo,
                            double alpha)
 {
-    CV_Assert(!baseGray.empty() && baseGray.type() == CV_8UC1);
+    CV_Assert(!baseBinaryFull.empty() && baseBinaryFull.type() == CV_8UC1);
+
+    cv::Mat baseGray = baseBinaryFull.clone();
     cv::Mat baseColor;
     cv::cvtColor(baseGray, baseColor, cv::COLOR_GRAY2BGR);
-    cv::Mat tinted = baseColor.clone();
+
+    cv::Rect roi(cropInfo.left,
+                 cropInfo.top,
+                 baseBinaryFull.cols - cropInfo.left - cropInfo.right,
+                 baseBinaryFull.rows - cropInfo.top - cropInfo.bottom);
+
+    CV_Assert(roi.width > 0 && roi.height > 0);
+    cv::Mat roiView = baseColor(roi);
+    cv::Mat tinted = roiView.clone();
 
     for (const auto &zone : zones)
     {
-        CV_Assert(zone.mask.size() == baseGray.size());
+        CV_Assert(zone.mask.size() == roi.size());
         tinted.setTo(labelColor(zone.label), zone.mask);
     }
 
-    cv::Mat blended;
     alpha = std::clamp(alpha, 0.0, 1.0);
-    cv::addWeighted(baseColor, 1.0 - alpha, tinted, alpha, 0.0, blended);
-    return blended;
+    cv::addWeighted(roiView, 1.0 - alpha, tinted, alpha, 0.0, roiView);
+    return baseColor;
 }
 
 //-------------------------------------------------------------------------- 

@@ -51,20 +51,11 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
-    cv::Mat baseGray = aligned.empty() ? raw : aligned.clone();
-    if (baseGray.channels() > 1)
-        cv::cvtColor(baseGray, baseGray, cv::COLOR_BGR2GRAY);
-    cv::Mat baseColor;
-    cv::cvtColor(baseGray, baseColor, cv::COLOR_GRAY2BGR);
-    cv::Rect roi(crop.left,
-                 crop.top,
-                 rank.cols,
-                 rank.rows);
-    cv::Mat visRoi = renderZonesOverlay(zones, baseGray(roi), 0.65);
-    visRoi.copyTo(baseColor(roi));
-    mapping::drawZoneGraphOnMap(graph, baseColor, mapInfo);
+    cv::Mat baseBinaryFull = Segmentation::uncropBackground(binaryDilated, crop, cv::Scalar(0));
+    cv::Mat vis = renderZonesOverlay(zones, baseBinaryFull, crop, 0.65);
+    mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
     if (vis_out) {
-        *vis_out = baseColor.clone();
+        *vis_out = vis.clone();
     }
 
     PDDLGenerator gen(graph);
