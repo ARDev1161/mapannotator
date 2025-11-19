@@ -145,6 +145,26 @@ and creates visual previews of the computed zones.
 - `docs/architecture_comparison.png` – сравнение пайплайнов статьи и Map Annotator
 - `docs/architecture.png` – обзорная архитектура пайплайна
 - `docs/semantic_actions.png` – последовательность семантических шагов
+- `scripts/batch_segment.py` – офлайн скрипт для прогонки `mapannotator` на
+  всех картах из `test_maps` (см. раздел ниже)
+
+### Пакетный запуск без ROS 2
+
+Сборка ROS 2 не обязательна для тестов. После компиляции CLI (`build/mapannotator`)
+можно прогнать все `.pgm` из каталога `test_maps`:
+
+```bash
+python scripts/batch_segment.py \
+    --binary build/mapannotator \
+    --maps-dir test_maps \
+    --output-dir batch_results \
+    --clean-artifacts
+```
+
+Для каждой карты скрипт сохраняет stdout/stderr, извлечённый PDDL, копии
+`graph.dot` и `graph_preview.png`, а также summary YAML. При наличии одноимённого
+`map.yaml` он будет подставлен автоматически; для кастомного конфигурационного
+файла можно передать `--config path/to/custom.yml`.
 
 ## License
 
