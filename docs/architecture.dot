@@ -23,8 +23,9 @@ digraph Architecture {
         label="Сегментация";
         style=filled;
         color="#ffe3e3";
-        gauss [label="Gaussian threshold sweep\n(segmentByGaussianThreshold)"];
-        labelmap [label="LabelMapping & centroid tracking"];
+        downsample [label="Downsample seeds\n(generateDownsampleSeeds)", fillcolor="#ffdab3", color="#f08c00"];
+        legacy [label="Legacy seeds\n(LabelMapping + Gaussian sweep)", fillcolor="#ffd6e0", color="#d6336c"];
+        post [label="Zone post-processing\nattach/merge + keep centroid", fillcolor="#ffe8cc", color="#f08c00"];
     }
 
     subgraph cluster_graph {
@@ -46,7 +47,10 @@ digraph Architecture {
 
     pgm -> align;
     ros -> align;
-    align -> denoise -> morph -> gauss -> labelmap -> graphbuild -> classify;
+    align -> denoise -> morph;
+    morph -> downsample -> post;
+    morph -> legacy -> post;
+    post -> graphbuild -> classify;
     classify -> pddl;
     classify -> viz;
     pddl -> rosout;
