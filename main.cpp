@@ -178,6 +178,7 @@ int main(int argc, char** argv)
     cv::Mat vis = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
     mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
 
+    cv::imwrite("segmentation_overlay.png", vis);
     if(!isHeadlessMode())
     {
         cv::imshow("segmented", vis);

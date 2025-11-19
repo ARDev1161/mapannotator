@@ -166,7 +166,7 @@ def process_map(
     output_dir = output_root / rel_parent / name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    global_artifacts = ["graph.dot", "graph_preview.png", "graph_preview.jpg"]
+    global_artifacts = ["graph.dot", "graph_preview.png", "graph_preview.jpg", "segmentation_overlay.png"]
     if clean_artifacts_flag:
         clean_global_artifacts(workdir, global_artifacts)
 

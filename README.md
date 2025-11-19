@@ -163,7 +163,7 @@ python scripts/batch_segment.py \
 ```
 
 Для каждой карты скрипт сохраняет stdout/stderr, извлечённый PDDL, копии
-`graph.dot` и `graph_preview.png`, а также summary YAML. Структура подпапок
+`graph.dot`, `graph_preview.png`, `segmentation_overlay.png`, а также summary YAML. Структура подпапок
 в `test_maps` сохраняется в `batch_results`. Если рядом с `.pgm` лежит
 `map.yaml`/`map.yml` или файл с тем же именем и расширением `.yaml`/`.yml`,
 он будет подставлен автоматически; при отсутствии такого файла скрипт подставит
