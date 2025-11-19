@@ -151,7 +151,7 @@ and creates visual previews of the computed zones.
 ### Пакетный запуск без ROS 2
 
 Сборка ROS 2 не обязательна для тестов. После компиляции CLI (`build/mapannotator`)
-можно прогнать все `.pgm` из каталога `test_maps`:
+можно прогнать все `.pgm` (включая вложенные подпапки) из каталога `test_maps`:
 
 ```bash
 python scripts/batch_segment.py \
@@ -162,9 +162,11 @@ python scripts/batch_segment.py \
 ```
 
 Для каждой карты скрипт сохраняет stdout/stderr, извлечённый PDDL, копии
-`graph.dot` и `graph_preview.png`, а также summary YAML. При наличии одноимённого
-`map.yaml` он будет подставлен автоматически; для кастомного конфигурационного
-файла можно передать `--config path/to/custom.yml`.
+`graph.dot` и `graph_preview.png`, а также summary YAML. Структура подпапок
+в `test_maps` сохраняется в `batch_results`. Если рядом с `.pgm` лежит
+`map.yaml`/`map.yml` или файл с тем же именем и расширением `.yaml`/`.yml`,
+он будет подставлен автоматически; для кастомного конфигурационного файла можно
+передать `--config path/to/custom.yml`.
 
 ## License
 

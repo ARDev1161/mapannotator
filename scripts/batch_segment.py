@@ -65,10 +65,23 @@ def parse_args() -> argparse.Namespace:
 def collect_maps(maps_dir: Path) -> List[Path]:
     if not maps_dir.is_dir():
         raise FileNotFoundError(f"Maps directory not found: {maps_dir}")
-    pgm_files = sorted(maps_dir.glob("*.pgm"))
+    pgm_files = sorted(maps_dir.rglob("*.pgm"))
     if not pgm_files:
         raise RuntimeError(f"No *.pgm files found in {maps_dir}")
     return pgm_files
+
+
+def find_metadata(map_file: Path) -> Optional[Path]:
+    candidates = [
+        map_file.with_suffix(".yaml"),
+        map_file.with_suffix(".yml"),
+        map_file.parent / "map.yaml",
+        map_file.parent / "map.yml",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def run_cli(
@@ -127,21 +140,22 @@ def clean_global_artifacts(workdir: Path, files: List[str]) -> None:
 def process_map(
     binary: Path,
     map_file: Path,
+    maps_root: Path,
     config_file: Optional[Path],
     output_root: Path,
     workdir: Path,
     clean_artifacts_flag: bool,
 ) -> Dict[str, Optional[str]]:
+    rel_parent = map_file.parent.relative_to(maps_root)
     name = map_file.stem
-    meta_file = map_file.with_suffix(".yaml")
-    output_dir = output_root / name
+    output_dir = output_root / rel_parent / name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     global_artifacts = ["graph.dot", "graph_preview.png", "graph_preview.jpg"]
     if clean_artifacts_flag:
         clean_global_artifacts(workdir, global_artifacts)
 
-    meta = meta_file if meta_file.exists() else None
+    meta = find_metadata(map_file)
     result = run_cli(binary, map_file, meta, config_file, workdir)
 
     stdout_path = output_dir / "stdout.txt"
@@ -167,12 +181,13 @@ def process_map(
 
     summary = {
         "map": str(map_file.resolve()),
-        "metadata": str(meta_file.resolve()) if meta_file.exists() else None,
+        "metadata": str(meta.resolve()) if meta else None,
         "config": str(config_file.resolve()) if config_file else None,
         "exit_code": result.returncode,
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
         "pddl": str(pddl_path) if pddl_path else None,
+        "output_subdir": str(output_dir.relative_to(output_root)),
         "artifacts": copied_artifacts,
     }
 
@@ -203,6 +218,7 @@ def main() -> int:
         summary = process_map(
             binary=binary,
             map_file=pgm,
+            maps_root=maps_dir,
             config_file=config_file,
             output_root=output_dir,
             workdir=binary.parent.resolve(),
