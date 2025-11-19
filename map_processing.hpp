@@ -30,4 +30,8 @@ void buildGraph(mapping::ZoneGraph &graphOut,
                 const MapInfo & mapParams,
                 std::unordered_map<int, cv::Point> centroids);
 
+cv::Mat renderZonesOverlay(const std::vector<ZoneMask> &zones,
+                           const cv::Mat1b &baseGray,
+                           double alpha = 0.65);
+
 #endif // MAP_PROCESSING_HPP

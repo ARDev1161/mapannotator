@@ -62,9 +62,38 @@ buildZoneAdjacency(const cv::Mat1i &zones, bool use8Connectivity = false)
     return adjacency;
 }
 
-//--------------------------------------------------------------------------
+static cv::Vec3b labelColor(int label)
+{
+    cv::RNG rng(static_cast<uint64_t>(label) * 9781u + 13579u);
+    return cv::Vec3b(rng.uniform(60, 255),
+                     rng.uniform(60, 255),
+                     rng.uniform(60, 255));
+}
+
+cv::Mat renderZonesOverlay(const std::vector<ZoneMask> &zones,
+                           const cv::Mat1b &baseGray,
+                           double alpha)
+{
+    CV_Assert(!baseGray.empty() && baseGray.type() == CV_8UC1);
+    cv::Mat baseColor;
+    cv::cvtColor(baseGray, baseColor, cv::COLOR_GRAY2BGR);
+    cv::Mat tinted = baseColor.clone();
+
+    for (const auto &zone : zones)
+    {
+        CV_Assert(zone.mask.size() == baseGray.size());
+        tinted.setTo(labelColor(zone.label), zone.mask);
+    }
+
+    cv::Mat blended;
+    alpha = std::clamp(alpha, 0.0, 1.0);
+    cv::addWeighted(baseColor, 1.0 - alpha, tinted, alpha, 0.0, blended);
+    return blended;
+}
+
+//-------------------------------------------------------------------------- 
 //  buildZoneIndex()
-//--------------------------------------------------------------------------
+//-------------------------------------------------------------------------- 
 static std::unordered_map<int, const cv::Mat1b *>
 buildZoneIndex(const std::vector<ZoneMask> &zones)
 {

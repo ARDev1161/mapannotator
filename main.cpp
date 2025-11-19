@@ -175,7 +175,7 @@ int main(int argc, char** argv)
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
-    cv::Mat vis = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
+    cv::Mat vis = renderZonesOverlay(zones, rank, 0.65);
     mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
 
     cv::imwrite("segmentation_overlay.png", vis);

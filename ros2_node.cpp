@@ -51,11 +51,10 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
+    cv::Mat localVis = renderZonesOverlay(zones, rank, 0.65);
+    mapping::drawZoneGraphOnMap(graph, localVis, mapInfo);
     if (vis_out) {
-        cv::Mat1b wallMask;
-        cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);
-        *vis_out = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
-        mapping::drawZoneGraphOnMap(graph, *vis_out, mapInfo);
+        *vis_out = localVis.clone();
     }
 
     PDDLGenerator gen(graph);
@@ -136,12 +135,15 @@ private:
         mapInfo.width = msg->info.width;
         mapInfo.height = msg->info.height;
 
-        cv::Mat vis;
-        std::string pddl = generatePddlFromMap(map, config_,
-                                              seg_params_,
-                                              start_zone_, goal_zone_, &vis);
+    cv::Mat vis;
+    std::string pddl = generatePddlFromMap(map, config_,
+                                          seg_params_,
+                                          start_zone_, goal_zone_, &vis);
 
+    if(!isHeadlessMode())
+    {
         cv::imshow("segmented", vis);
+    }
 
         std_msgs::msg::String out;
         out.data = pddl;
