@@ -141,7 +141,17 @@ int main(int argc, char** argv)
 //    showMat("Endpoints mask", endpointsMask); // inflation radius
 
     LabelsInfo labels;
-    auto zones = segmentByGaussianThreshold(binaryDilated, labels, 50, 0.5);
+    SegmentationParams segParams;
+    segParams.legacyMaxIter = 50;
+    segParams.legacySigmaStep = 0.5;
+    segParams.legacyThreshold = 0.5;
+    segParams.useDownsampleSeeds = true;
+    segParams.downsampleConfig.maxIter = 60;
+    segParams.downsampleConfig.sigmaStart = 1.0;
+    segParams.downsampleConfig.sigmaStep = 0.4;
+    segParams.downsampleConfig.threshold = 0.55;
+
+    auto zones = segmentByGaussianThreshold(binaryDilated, labels, segParams);
 
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
             int iter = 0;

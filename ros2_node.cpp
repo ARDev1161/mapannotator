@@ -25,9 +25,7 @@ using mapping::NodePtr;
 
 static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                        const SegmenterConfig &cfg,
-                                       int max_iter,
-                                       double sigma_step,
-                                       double seg_threshold,
+                                       const SegmentationParams &seg_params,
                                        const std::string &start_zone,
                                        const std::string &goal_zone,
                                        cv::Mat *vis_out = nullptr)
@@ -44,8 +42,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                           cfg.dilateConfig.iterations);
 
     LabelsInfo labels;
-    auto zones = segmentByGaussianThreshold(binaryDilated, labels,
-                                            max_iter, sigma_step, seg_threshold);
+    auto zones = segmentByGaussianThreshold(binaryDilated, labels, seg_params);
 
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
     for (const auto &z : zones)
@@ -92,9 +89,18 @@ public:
         config_.alignmentConfig.enable =
             this->declare_parameter("alignment.enable", true);
 
-        seg_max_iter_ = this->declare_parameter("segmentation.max_iter", 50);
-        seg_sigma_step_ = this->declare_parameter("segmentation.sigma_step", 0.5);
-        seg_threshold_ = this->declare_parameter("segmentation.threshold", 0.5);
+        seg_params_.legacyMaxIter = this->declare_parameter("segmentation.max_iter", 50);
+        seg_params_.legacySigmaStep = this->declare_parameter("segmentation.sigma_step", 0.5);
+        seg_params_.legacyThreshold = this->declare_parameter("segmentation.threshold", 0.5);
+        seg_params_.downsampleConfig.maxIter = seg_params_.legacyMaxIter;
+        seg_params_.downsampleConfig.sigmaStep = seg_params_.legacySigmaStep;
+        seg_params_.downsampleConfig.threshold = seg_params_.legacyThreshold;
+        seg_params_.downsampleConfig.sigmaStart =
+            this->declare_parameter("segmentation.downsample_sigma_start", 1.0);
+        seg_params_.downsampleConfig.backgroundKernel =
+            this->declare_parameter("segmentation.background_kernel", 5);
+        seg_params_.useDownsampleSeeds =
+            this->declare_parameter("segmentation.use_downsample_seeds", true);
 
         start_zone_ = this->declare_parameter("start_zone", std::string("ROBOT_CUR_ZONE"));
         goal_zone_  = this->declare_parameter("goal_zone", std::string("ROBOT_GOAL_ZONE"));
@@ -132,7 +138,7 @@ private:
 
         cv::Mat vis;
         std::string pddl = generatePddlFromMap(map, config_,
-                                              seg_max_iter_, seg_sigma_step_, seg_threshold_,
+                                              seg_params_,
                                               start_zone_, goal_zone_, &vis);
 
         cv::imshow("segmented", vis);
@@ -158,9 +164,7 @@ private:
     std::string pddl_topic_;
     std::string segmentation_topic_;
     SegmenterConfig config_;
-    int seg_max_iter_;
-    double seg_sigma_step_;
-    double seg_threshold_;
+    SegmentationParams seg_params_;
     std::string start_zone_;
     std::string goal_zone_;
 };
@@ -173,4 +177,3 @@ int main(int argc, char **argv)
     rclcpp::shutdown();
     return 0;
 }
-

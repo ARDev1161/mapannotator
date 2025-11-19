@@ -8,13 +8,21 @@
 #include "mapgraph/zonegraph.hpp"
 #include "segmentation/segmentation.hpp"
 #include "segmentation/labelmapping.hpp"
+#include "segmentation/downsample_seeding.hpp"
+
+struct SegmentationParams {
+    int legacyMaxIter = 40;
+    double legacySigmaStep = 0.25;
+    double legacyThreshold = 0.5;
+
+    bool useDownsampleSeeds = true;
+    DownsampleSeedsConfig downsampleConfig;
+};
 
 std::vector<ZoneMask>
 segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
                            LabelsInfo &labelsOut,
-                           int maxIter = 40,
-                           double sigmaStep = 0.25,
-                           double threshold = 0.5);
+                           const SegmentationParams &params);
 
 void buildGraph(mapping::ZoneGraph &graphOut,
                 std::vector<ZoneMask> zones,
@@ -23,4 +31,3 @@ void buildGraph(mapping::ZoneGraph &graphOut,
                 std::unordered_map<int, cv::Point> centroids);
 
 #endif // MAP_PROCESSING_HPP
-

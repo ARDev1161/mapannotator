@@ -29,6 +29,7 @@ set(SEGMENTATION_SRC
     segmentation/segmentation.hpp segmentation/segmentation.cpp
     segmentation/labelmapping.hpp segmentation/labelmapping.cpp
     segmentation/zoneclassifier.h segmentation/zoneclassifier.cpp
+    segmentation/downsample_seeding.hpp segmentation/downsample_seeding.cpp
 )
 
 set(PDDL_SRC

@@ -1,5 +1,6 @@
 #include "map_processing.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <unordered_set>
 #include <opencv2/ximgproc.hpp>
@@ -387,14 +388,74 @@ static std::size_t attachPixelsToNearestZone(cv::Mat1b &occupancy,
 //--------------------------------------------------------------------------
 //  segmentByGaussianThreshold()
 //--------------------------------------------------------------------------
+static std::unordered_map<int, cv::Point>
+computeZoneCentroids(const std::vector<ZoneMask> &zones)
+{
+    std::unordered_map<int, cv::Point> centroids;
+    for (const auto &zone : zones) {
+        cv::Moments m = cv::moments(zone.mask, true);
+        if (m.m00 <= 0.0)
+            continue;
+        int cx = static_cast<int>(std::round(m.m10 / m.m00));
+        int cy = static_cast<int>(std::round(m.m01 / m.m00));
+        cx = std::clamp(cx, 0, zone.mask.cols - 1);
+        cy = std::clamp(cy, 0, zone.mask.rows - 1);
+        centroids[zone.label] = cv::Point(cx, cy);
+    }
+    return centroids;
+}
+
+static LabelsInfo buildLabelsFromZones(const std::vector<ZoneMask> &zones)
+{
+    LabelsInfo info;
+    if (zones.empty())
+        return info;
+
+    info.centroidLabels = cv::Mat1i::zeros(zones.front().mask.size());
+    info.numLabels = static_cast<int>(zones.size()) + 1;
+
+    for (const auto &zone : zones) {
+        cv::Moments m = cv::moments(zone.mask, true);
+        if (m.m00 <= 0.0)
+            continue;
+        int cx = static_cast<int>(std::round(m.m10 / m.m00));
+        int cy = static_cast<int>(std::round(m.m01 / m.m00));
+        cx = std::clamp(cx, 0, zone.mask.cols - 1);
+        cy = std::clamp(cy, 0, zone.mask.rows - 1);
+        info.centroids[zone.label] = cv::Point(cx, cy);
+        info.centroidLabels(cy, cx) = zone.label;
+    }
+    return info;
+}
+
 std::vector<ZoneMask>
 segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
                            LabelsInfo &labelsOut,
-                           int maxIter,
-                           double sigmaStep,
-                           double threshold)
+                           const SegmentationParams &params)
 {
     CV_Assert(!srcBinary.empty() && srcBinary.type() == CV_8UC1);
+
+    if (params.useDownsampleSeeds) {
+        auto zones = generateDownsampleSeeds(srcBinary,
+                                             params.downsampleConfig);
+        if (!zones.empty()) {
+            cv::Mat1b src255;
+            srcBinary.convertTo(src255, CV_8U, 255);
+            cv::Mat1b occ = LabelMapping::buildOccupancyMask(src255, zones);
+            eraseWallsFromZones(srcBinary, zones);
+            attachPixelsToNearestZone(occ, zones);
+
+            auto centroidMap = computeZoneCentroids(zones);
+            keepCentroidComponent(centroidMap, zones, &occ);
+            mergeLonelyFreeAreas(occ, srcBinary, zones);
+
+            labelsOut = buildLabelsFromZones(zones);
+            return zones;
+        }
+
+        std::cerr << "[warn] down-sample seeding produced no zones, "
+                  << "falling back to legacy segmentation\n";
+    }
 
     labelsOut = LabelMapping::computeLabels(srcBinary, /*invert=*/false);
 
@@ -408,9 +469,9 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
     cv::Mat1b src255;
     srcBinary.convertTo(src255, CV_8U, 255);
 
-    for (int iter = 0; iter < maxIter && !todo.empty(); ++iter)
+    for (int iter = 0; iter < params.legacyMaxIter && !todo.empty(); ++iter)
     {
-        double sigma = (iter + 1) * sigmaStep;
+        double sigma = (iter + 1) * params.legacySigmaStep;
 
         cv::Mat1b kernel = cv::getStructuringElement(
                                cv::MORPH_RECT, cv::Size(2*1+1, 2*1+1));
@@ -419,7 +480,7 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
         cv::GaussianBlur(eroded, blurred, cv::Size(0,0), sigma, sigma,
                          cv::BORDER_REPLICATE);
 
-        cv::threshold(blurred, bin, threshold, 1, cv::THRESH_BINARY);
+        cv::threshold(blurred, bin, params.legacyThreshold, 1, cv::THRESH_BINARY);
 
         cv::Mat1b seg8u;
         bin.convertTo(seg8u, CV_8U, 255);
@@ -467,6 +528,7 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
         eraseWallsFromZones(srcBinary, allZones);
 
         std::size_t n = attachPixelsToNearestZone(occ, allZones);
+        (void)n;
 
         keepCentroidComponent(labelsOut.centroids, allZones, &occ);
         int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
@@ -482,4 +544,3 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
 
     return allZones;
 }
-
