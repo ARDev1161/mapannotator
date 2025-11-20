@@ -136,18 +136,38 @@ and creates visual previews of the computed zones.
     `segmentation.background_kernel` — параметры нового генератора семян;
   - `start_zone`, `goal_zone` (имена в генерируемой PDDL).
 
-## Repository structure
+## Структура каталогов
 
-- `segmentation/` – image processing and segmentation routines
-- `mapgraph/` – zone graph data structures and visualisation helpers
-- `pddl/` – utilities for generating PDDL from the graph
-- `config/` – example classification rules
-- `docs/architecture_comparison.png` – сравнение пайплайнов статьи и Map Annotator
-- `docs/architecture.png` – обзорная архитектура пайплайна
-- `docs/semantic_actions.png` – последовательность семантических шагов
-- `default.yml` – минимальный конфиг по умолчанию для CLI
-- `scripts/batch_segment.py` – офлайн скрипт для прогонки `mapannotator` на
-  всех картах из `test_maps` (см. раздел ниже)
+```text
+.
+├── CMakeLists.txt          # сборка CLI и ROS-обвязки
+├── config/                 # правила классификации зон (rules.yaml)
+├── docs/                   # диаграммы пайплайна и сравнения архитектур
+├── mapgraph/               # структура графа зон и экспортеры dot/png
+├── pddl/                   # генерация PDDL (PDDLGenerator)
+├── preparing/              # стадия предобработки карты
+├── scripts/                # вспомогательные утилиты (batch_segment.py)
+├── segmentation/           # сегментация свободного пространства
+├── test_maps/              # тестовые карты для отладки и бенчмарков
+├── thirdparty/             # внешние зависимости (exprtk.hpp)
+├── utils.hpp               # общие helpers, используемые по всему проекту
+├── visualization.hpp       # формирование цветовых наложений
+├── ros2_node.cpp           # входная точка ROS 2 ноды
+├── main.cpp                # CLI-интерфейс
+├── default.yml             # минимальный конфиг по умолчанию
+├── batch_results*/         # артефакты пакетного запуска (gitignored)
+└── build/                  # артефакты сборки (gitignored)
+```
+
+Ключевые каталоги:
+
+- `segmentation/` — алгоритмы поиска семян, роста регионов и классификации.
+- `mapgraph/` — графовая модель зон, преобразование координат и экспорт в DOT.
+- `pddl/` — текстовые генераторы задач на основании полученного графа.
+- `config/` — пример конфигурации правил (`rules.yaml`), который можно менять под свои классы зон.
+- `docs/` — визуальные материалы и диаграммы, на которые ссылаются разделы выше.
+- `scripts/` — офлайн-инструменты, например `batch_segment.py` для прогонов по `test_maps`.
+- `test_maps/` — эталонные карты; структура подпапок сохраняется в `batch_results`.
 
 ### Пакетный запуск без ROS 2
 
