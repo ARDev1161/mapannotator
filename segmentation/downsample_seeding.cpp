@@ -1,10 +1,10 @@
 #include "downsample_seeding.hpp"
 
 #include <algorithm>
-#include <map>
-#include <set>
 #include <unordered_map>
 #include <vector>
+#include <limits>
+#include <iostream>
 
 namespace
 {
@@ -14,22 +14,6 @@ struct SeedLayer
 };
 
 using SeedMaskMap = std::unordered_map<int, cv::Mat1b>;
-
-/** Extract unique positive labels from CV_32S map. */
-static std::vector<int> uniqueLabels(const cv::Mat1i &labels)
-{
-    CV_Assert(labels.type() == CV_32S);
-    std::set<int> uniq;
-    for (int y = 0; y < labels.rows; ++y) {
-        const int *row = labels.ptr<int>(y);
-        for (int x = 0; x < labels.cols; ++x) {
-            int v = row[x];
-            if (v > 0)
-                uniq.insert(v);
-        }
-    }
-    return std::vector<int>(uniq.begin(), uniq.end());
-}
 
 /** Helper that materialises a binary mask for the requested label. */
 static cv::Mat1b labelMask(const cv::Mat1i &labels, int label)
@@ -98,6 +82,72 @@ static void registerSeed(SeedMaskMap &seedMasks,
 
 } // namespace
 
+namespace {
+struct LabelInfo
+{
+    int label = 0;
+    int area = 0;
+    int minX = std::numeric_limits<int>::max();
+    int minY = std::numeric_limits<int>::max();
+    int maxX = std::numeric_limits<int>::min();
+    int maxY = std::numeric_limits<int>::min();
+    std::vector<int> parents;
+
+    void updateBBox(int x, int y)
+    {
+        minX = std::min(minX, x);
+        minY = std::min(minY, y);
+        maxX = std::max(maxX, x);
+        maxY = std::max(maxY, y);
+    }
+};
+
+static std::vector<LabelInfo>
+collectLabelInfo(const cv::Mat1i &labels, const cv::Mat1i *prevLayer)
+{
+    std::unordered_map<int, LabelInfo> info;
+    info.reserve(256);
+
+    for (int y = 0; y < labels.rows; ++y)
+    {
+        const int *rowCurr = labels.ptr<int>(y);
+        const int *rowPrev = prevLayer ? prevLayer->ptr<int>(y) : nullptr;
+        for (int x = 0; x < labels.cols; ++x)
+        {
+            int lbl = rowCurr[x];
+            if (lbl <= 0)
+                continue;
+
+            auto &entry = info[lbl];
+            if (entry.label == 0)
+                entry.label = lbl;
+
+            entry.area++;
+            entry.updateBBox(x, y);
+
+            if (rowPrev)
+            {
+                int parent = rowPrev[x];
+                if (parent > 0 &&
+                    std::find(entry.parents.begin(), entry.parents.end(), parent) == entry.parents.end())
+                {
+                    entry.parents.push_back(parent);
+                }
+            }
+        }
+    }
+
+    std::vector<LabelInfo> result;
+    result.reserve(info.size());
+    for (auto &kv : info)
+        result.push_back(std::move(kv.second));
+
+    std::sort(result.begin(), result.end(),
+              [](const LabelInfo &a, const LabelInfo &b) { return a.label < b.label; });
+    return result;
+}
+} // namespace
+
 std::vector<ZoneMask>
 generateDownsampleSeeds(const cv::Mat1b &srcBinary,
                         const DownsampleSeedsConfig &cfg)
@@ -111,60 +161,61 @@ generateDownsampleSeeds(const cv::Mat1b &srcBinary,
     SeedMaskMap seedMasks;
     int nextGlobalId = 1;
     std::unordered_map<int, int> prevLocalToGlobal;
+    bool abortedByLimit = false;
+
+    auto tryRegisterSeed = [&](int globalId,
+                               const cv::Mat1i &labelMap,
+                               const LabelInfo &info) {
+        if (cfg.minSeedAreaPx > 0 && info.area < cfg.minSeedAreaPx)
+            return true; // skip tiny seeds silently
+
+        if (cfg.maxSeeds > 0 &&
+            static_cast<int>(seedMasks.size()) >= cfg.maxSeeds)
+        {
+            abortedByLimit = true;
+            return false;
+        }
+
+        cv::Mat1b mask = labelMask(labelMap, info.label);
+        registerSeed(seedMasks, globalId, mask);
+        return true;
+    };
 
     for (int layerIdx = static_cast<int>(layers.size()) - 1;
          layerIdx >= 0;
          --layerIdx)
     {
         const auto &layer = layers[layerIdx];
-        std::vector<int> currentLabels = uniqueLabels(layer.labels);
+        const cv::Mat1i *prevLabels = (layerIdx + 1 < static_cast<int>(layers.size()))
+                                      ? &layers[layerIdx + 1].labels
+                                      : nullptr;
+
+        std::vector<LabelInfo> infos = collectLabelInfo(layer.labels, prevLabels);
         std::unordered_map<int, int> currentLocalToGlobal;
         std::unordered_map<int, int> parentChildCount;
 
-        struct LabelParents {
-            int label;
-            std::vector<int> parents;
-            cv::Mat1b mask;
-        };
-        std::vector<LabelParents> info;
-        info.reserve(currentLabels.size());
+        for (const auto &entry : infos)
+        {
+            for (int parentLocal : entry.parents)
+                parentChildCount[parentLocal]++;
+        }
 
-        if (layerIdx == static_cast<int>(layers.size()) - 1) {
-            for (int lbl : currentLabels) {
-                cv::Mat1b mask = labelMask(layer.labels, lbl);
-                registerSeed(seedMasks, nextGlobalId, mask);
-                currentLocalToGlobal[lbl] = nextGlobalId++;
+        if (!prevLabels) {
+            for (const auto &entry : infos) {
+                int gid = nextGlobalId++;
+                if (!tryRegisterSeed(gid, layer.labels, entry))
+                    break;
+                currentLocalToGlobal[entry.label] = gid;
             }
         } else {
-            const auto &prevLayer = layers[layerIdx + 1];
+            for (const auto &entry : infos) {
+                if (abortedByLimit)
+                    break;
 
-            for (int lbl : currentLabels) {
-                LabelParents entry;
-                entry.label = lbl;
-                entry.mask  = labelMask(layer.labels, lbl);
-
-                std::set<int> parents;
-                for (int y = 0; y < entry.mask.rows; ++y) {
-                    const uchar *rowMask = entry.mask.ptr<uchar>(y);
-                    const int   *rowPrev = prevLayer.labels.ptr<int>(y);
-                    for (int x = 0; x < entry.mask.cols; ++x) {
-                        if (rowMask[x]) {
-                            int prevLbl = rowPrev[x];
-                            if (prevLbl > 0)
-                                parents.insert(prevLbl);
-                        }
-                    }
-                }
-                entry.parents.assign(parents.begin(), parents.end());
-                for (int parentLocal : entry.parents)
-                    parentChildCount[parentLocal]++;
-                info.push_back(std::move(entry));
-            }
-
-            for (const auto &entry : info) {
                 if (entry.parents.empty()) {
                     int gid = nextGlobalId++;
-                    registerSeed(seedMasks, gid, entry.mask);
+                    if (!tryRegisterSeed(gid, layer.labels, entry))
+                        break;
                     currentLocalToGlobal[entry.label] = gid;
                     continue;
                 }
@@ -176,29 +227,42 @@ generateDownsampleSeeds(const cv::Mat1b &srcBinary,
                                        ? parentIt->second : -1;
                     if (parentGlobal < 0) {
                         int gid = nextGlobalId++;
-                        registerSeed(seedMasks, gid, entry.mask);
+                        if (!tryRegisterSeed(gid, layer.labels, entry))
+                            break;
                         currentLocalToGlobal[entry.label] = gid;
                         continue;
                     }
 
                     if (parentChildCount[parentLocal] == 1) {
                         currentLocalToGlobal[entry.label] = parentGlobal;
-                        registerSeed(seedMasks, parentGlobal, entry.mask);
+                        if (!tryRegisterSeed(parentGlobal, layer.labels, entry))
+                            break;
                     } else {
                         seedMasks.erase(parentGlobal); // родитель не лист
                         int gid = nextGlobalId++;
-                        registerSeed(seedMasks, gid, entry.mask);
+                        if (!tryRegisterSeed(gid, layer.labels, entry))
+                            break;
                         currentLocalToGlobal[entry.label] = gid;
                     }
                 } else {
                     int gid = nextGlobalId++;
-                    registerSeed(seedMasks, gid, entry.mask);
+                    if (!tryRegisterSeed(gid, layer.labels, entry))
+                        break;
                     currentLocalToGlobal[entry.label] = gid;
                 }
             }
         }
 
+        if (abortedByLimit)
+            break;
+
         prevLocalToGlobal = std::move(currentLocalToGlobal);
+    }
+
+    if (abortedByLimit) {
+        std::cerr << "[warn] down-sample seeding aborted: too many seeds "
+                  << "(cap=" << cfg.maxSeeds << ")\n";
+        return {};
     }
 
     std::vector<int> ids;

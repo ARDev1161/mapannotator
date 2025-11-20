@@ -13,6 +13,8 @@ struct DownsampleSeedsConfig {
     int    maxIter    = 60;      ///< maximum number of iterations
     double threshold  = 0.55;    ///< threshold applied after blur (0..1)
     int    backgroundKernel = 5; ///< erosion kernel for background mask
+    int    minSeedAreaPx   = 16; ///< drop seeds smaller than this area (px)
+    int    maxSeeds        = 2000; ///< soft cap to avoid excessive memory use
 };
 
 /**
