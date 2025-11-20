@@ -37,6 +37,9 @@ int main(int argc, char** argv)
     // Если передан файл конфигурации, используем его, иначе "default.yml"
     std::string configFile = (argc >= 3) ? argv[2] : "default.yml";
 
+    double seedClearanceMeters = 0.0;
+    double seedClearancePx = 0.0;
+
     // Загружаем YAML-конфигурацию
     YAML::Node config;
     try {
@@ -46,6 +49,23 @@ int main(int argc, char** argv)
         return 1;
     }
     std::cout << "Loaded config from: " << configFile << std::endl;
+
+    if (config["segmentation"])
+    {
+        auto segNode = config["segmentation"];
+        if (segNode["seed_clearance_px"])
+            seedClearancePx = segNode["seed_clearance_px"].as<double>();
+        if (segNode["seed_clearance_m"])
+            seedClearanceMeters = segNode["seed_clearance_m"].as<double>();
+    }
+    if (seedClearanceMeters <= 0.0 && config["robot"])
+    {
+        auto robotNode = config["robot"];
+        if (robotNode["radius"])
+            seedClearanceMeters = robotNode["radius"].as<double>();
+        else if (robotNode["diameter"])
+            seedClearanceMeters = 0.5 * robotNode["diameter"].as<double>();
+    }
 
     // Определяем имя map.yaml: то же, что и pgmFile, только с расширением .yaml
     std::string mapYamlFile = pgmFile.substr(0, pgmFile.find_last_of('.')) + ".yaml";
@@ -106,6 +126,9 @@ int main(int argc, char** argv)
     mapInfo.height = raw.rows;
     mapInfo.width = raw.cols;
 
+    if (seedClearancePx <= 0.0 && seedClearanceMeters > 0.0 && mapInfo.resolution > 0.0)
+        seedClearancePx = seedClearanceMeters / mapInfo.resolution;
+
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
 
@@ -143,6 +166,7 @@ int main(int argc, char** argv)
     segParams.downsampleConfig.sigmaStart = 1.0;
     segParams.downsampleConfig.sigmaStep = 0.4;
     segParams.downsampleConfig.threshold = 0.55;
+    segParams.seedClearancePx = seedClearancePx;
 
     // Этап сегментации
     LabelsInfo labels;

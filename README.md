@@ -69,7 +69,9 @@
   детекцией рождения/смерти семян;
 - ROS-параметры `segmentation.use_downsample_seeds`,
   `segmentation.downsample_sigma_start`, `segmentation.background_kernel`
-  позволяют менять режим без пересборки.
+  позволяют менять режим без пересборки. Отдельный параметр
+  `segmentation.seed_clearance_m` (или `segmentation.seed_clearance_px`)
+  задаёт допустимый зазор до препятствий при выборе семян.
 
 При включённом режиме итоговые зоны используют «листья» иерархии семян,
 что заметно уменьшает пере- и недо-сегментацию длинных коридоров.
@@ -134,6 +136,9 @@ and creates visual previews of the computed zones.
     так и точным режимом;
   - `segmentation.use_downsample_seeds`, `segmentation.downsample_sigma_start`,
     `segmentation.background_kernel` — параметры нового генератора семян;
+  - `segmentation.seed_clearance_m` (или `seed_clearance_px`) — минимальный зазор
+    между семенем и препятствиями; можно также задать `robot.radius`/`robot.diameter`
+    и использовать половину размера робота;
   - `start_zone`, `goal_zone` (имена в генерируемой PDDL).
 
 ## Структура каталогов

@@ -107,6 +107,10 @@ public:
             this->declare_parameter("segmentation.background_kernel", 5);
         seg_params_.useDownsampleSeeds =
             this->declare_parameter("segmentation.use_downsample_seeds", true);
+        seg_params_.seedClearancePx =
+            this->declare_parameter("segmentation.seed_clearance_px", 0.0);
+        seed_clearance_m_ =
+            this->declare_parameter("segmentation.seed_clearance_m", 0.0);
 
         start_zone_ = this->declare_parameter("start_zone", std::string("ROBOT_CUR_ZONE"));
         goal_zone_  = this->declare_parameter("goal_zone", std::string("ROBOT_GOAL_ZONE"));
@@ -142,18 +146,21 @@ private:
         mapInfo.width = msg->info.width;
         mapInfo.height = msg->info.height;
 
-    cv::Mat vis;
-    std::string pddl = generatePddlFromMap(map, config_,
-                                          seg_params_,
-                                          start_zone_, goal_zone_, &vis);
+        if (seed_clearance_m_ > 0.0 && mapInfo.resolution > 0.0)
+            seg_params_.seedClearancePx = seed_clearance_m_ / mapInfo.resolution;
 
-    if(!isHeadlessMode())
-    {
+        cv::Mat vis;
+        std::string pddl = generatePddlFromMap(map, config_,
+                                              seg_params_,
+                                              start_zone_, goal_zone_, &vis);
+
         if(!isHeadlessMode())
         {
-            cv::imshow("segmented", vis);
+            if(!isHeadlessMode())
+            {
+                cv::imshow("segmented", vis);
+            }
         }
-    }
 
         std_msgs::msg::String out;
         out.data = pddl;
@@ -179,6 +186,7 @@ private:
     SegmentationParams seg_params_;
     std::string start_zone_;
     std::string goal_zone_;
+    double seed_clearance_m_{0.0};
 };
 
 int main(int argc, char **argv)

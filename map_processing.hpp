@@ -15,6 +15,8 @@ struct SegmentationParams {
     double legacySigmaStep = 0.25;
     double legacyThreshold = 0.5;
 
+    double seedClearancePx = 0.0; ///< minimal distance from seeds to obstacles (pixels)
+
     bool useDownsampleSeeds = true;
     DownsampleSeedsConfig downsampleConfig;
 };

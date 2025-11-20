@@ -4,6 +4,8 @@
 #include <fstream>
 #include <unordered_set>
 #include <opencv2/ximgproc.hpp>
+#include <cmath>
+#include <filesystem>
 
 #include "mapgraph/zone_graph_dot.hpp"
 #include "mapgraph/zone_graph_draw.hpp"
@@ -186,7 +188,21 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
         std::cerr << '\n';
     }
 
-    annotateGraph(graphOut, "../config/rules.yaml");
+    auto locateRules = []() -> std::string {
+        namespace fs = std::filesystem;
+        const std::vector<fs::path> candidates = {
+            fs::path("config") / "rules.yaml",
+            fs::path("../config") / "rules.yaml",
+            fs::path("share") / "mapannotator" / "config" / "rules.yaml"
+        };
+        for (const auto &p : candidates) {
+            if (fs::exists(p))
+                return p.string();
+        }
+        return (fs::path("config") / "rules.yaml").string();
+    };
+
+    annotateGraph(graphOut, locateRules());
 
     /* ---------- DOT‑файл ----------------------------------------------- */
     std::ofstream dot("graph.dot");
@@ -471,6 +487,122 @@ static LabelsInfo buildLabelsFromZones(const std::vector<ZoneMask> &zones)
     return info;
 }
 
+static bool obstacleWithinRadius(const cv::Mat1b &binaryMap,
+                                 const cv::Point &centroid,
+                                 int radiusPx)
+{
+    if (radiusPx <= 0)
+        return false;
+
+    const int radiusSq = radiusPx * radiusPx;
+    const int x0 = std::max(0, centroid.x - radiusPx);
+    const int x1 = std::min(binaryMap.cols - 1, centroid.x + radiusPx);
+    const int y0 = std::max(0, centroid.y - radiusPx);
+    const int y1 = std::min(binaryMap.rows - 1, centroid.y + radiusPx);
+
+    for (int y = y0; y <= y1; ++y)
+    {
+        const uchar *row = binaryMap.ptr<uchar>(y);
+        for (int x = x0; x <= x1; ++x)
+        {
+            if (row[x] != 0)
+                continue;
+            const int dx = x - centroid.x;
+            const int dy = y - centroid.y;
+            if (dx * dx + dy * dy <= radiusSq)
+                return true;
+        }
+    }
+    return false;
+}
+
+static void filterSeedCentroids(LabelsInfo &labels,
+                                const cv::Mat1b &binaryMap,
+                                double minDistancePx)
+{
+    if (minDistancePx <= 0.0 || labels.centroids.empty())
+        return;
+
+    const int radiusPx = std::max(0, static_cast<int>(std::ceil(minDistancePx)));
+    if (radiusPx <= 0)
+        return;
+
+    int removed = 0;
+    for (auto it = labels.centroids.begin(); it != labels.centroids.end(); )
+    {
+        if (it->first <= 0 || it->second.x < 0 || it->second.y < 0 ||
+            it->second.x >= binaryMap.cols || it->second.y >= binaryMap.rows)
+        {
+            ++it;
+            continue;
+        }
+
+        if (obstacleWithinRadius(binaryMap, it->second, radiusPx))
+        {
+            labels.centroidLabels(it->second) = 0;
+            it = labels.centroids.erase(it);
+            ++removed;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    if (removed > 0)
+    {
+        labels.numLabels = static_cast<int>(labels.centroids.size()) + 1;
+        std::cout << "[info] Removed " << removed
+                  << " centroid seed(s) closer than "
+                  << minDistancePx << "px to obstacles\n";
+    }
+}
+
+static void filterSeedMasks(std::vector<ZoneMask> &seeds,
+                            const cv::Mat1b &binaryMap,
+                            double minDistancePx)
+{
+    if (minDistancePx <= 0.0 || seeds.empty())
+        return;
+
+    const int radiusPx = std::max(0, static_cast<int>(std::ceil(minDistancePx)));
+    if (radiusPx <= 0)
+        return;
+
+    std::vector<ZoneMask> filtered;
+    filtered.reserve(seeds.size());
+    int removed = 0;
+
+    for (const auto &seed : seeds)
+    {
+        cv::Moments m = cv::moments(seed.mask, true);
+        if (m.m00 <= 0.0)
+        {
+            ++removed;
+            continue;
+        }
+        int cx = static_cast<int>(std::round(m.m10 / m.m00));
+        int cy = static_cast<int>(std::round(m.m01 / m.m00));
+        cx = std::clamp(cx, 0, binaryMap.cols - 1);
+        cy = std::clamp(cy, 0, binaryMap.rows - 1);
+
+        if (obstacleWithinRadius(binaryMap, {cx, cy}, radiusPx))
+        {
+            ++removed;
+            continue;
+        }
+        filtered.push_back(seed);
+    }
+
+    if (removed > 0)
+    {
+        std::cout << "[info] Removed " << removed
+                  << " mask seed(s) closer than "
+                  << minDistancePx << "px to obstacles\n";
+        seeds.swap(filtered);
+    }
+}
+
 std::vector<ZoneMask>
 segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
                            LabelsInfo &labelsOut,
@@ -482,6 +614,11 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
         auto zones = generateDownsampleSeeds(srcBinary,
                                              params.downsampleConfig);
         if (!zones.empty()) {
+            filterSeedMasks(zones, srcBinary, params.seedClearancePx);
+            if (zones.empty()) {
+                std::cerr << "[warn] all down-sample seeds were dropped by clearance filter, "
+                          << "falling back to legacy segmentation\n";
+            } else {
             cv::Mat1b src255;
             srcBinary.convertTo(src255, CV_8U, 255);
             cv::Mat1b occ = LabelMapping::buildOccupancyMask(src255, zones);
@@ -492,17 +629,19 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
             keepCentroidComponent(centroidMap, zones, &occ);
             mergeLonelyFreeAreas(occ, srcBinary, zones);
 
-            labelsOut = buildLabelsFromZones(zones);
-            return zones;
+                labelsOut = buildLabelsFromZones(zones);
+                return zones;
+            }
         }
 
         std::cerr << "[warn] down-sample seeding produced no zones, "
                   << "falling back to legacy segmentation\n";
     }
 
-    labelsOut = LabelMapping::computeLabels(srcBinary, /*invert=*/false);
+    LabelsInfo seedLabels = LabelMapping::computeLabels(srcBinary, /*invert=*/false);
+    filterSeedCentroids(seedLabels, srcBinary, params.seedClearancePx);
 
-    std::unordered_map<int, cv::Point> todo = labelsOut.centroids;
+    std::unordered_map<int, cv::Point> todo = seedLabels.centroids;
     std::vector<ZoneMask> allZones;
 
     cv::Mat blurred, bin;
@@ -573,7 +712,7 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
         std::size_t n = attachPixelsToNearestZone(occ, allZones);
         (void)n;
 
-        keepCentroidComponent(labelsOut.centroids, allZones, &occ);
+        keepCentroidComponent(seedLabels.centroids, allZones, &occ);
         int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
         std::cout << "Добавлено участков: " << added << '\n';
 
@@ -585,5 +724,6 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
         std::cerr << std::endl;
     }
 
+    labelsOut = buildLabelsFromZones(allZones);
     return allZones;
 }
