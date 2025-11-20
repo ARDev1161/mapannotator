@@ -206,7 +206,7 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
                           int maxIter) // «предохранитель» от бесконечности
 {
     cv::Mat out;
-    showMat("raw src", src);
+    showMatDebug("raw src", src);
 
     CV_Assert(src.type() == CV_8UC1);
     const uchar GRAY = 205; // 205 default for ROS2 maps
@@ -220,9 +220,9 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     cv::bitwise_or(black, white, bw);
     cv::bitwise_not(bw, gray);                    // всё, что не 0 и не 255
 
-    showMat("BLACK", black);
-    showMat("WHITE", white);
-    showMat("Gray", gray);
+    showMatDebug("BLACK", black);
+    showMatDebug("WHITE", white);
+    showMatDebug("Gray", gray);
 
     /* если серого нет – ничего делать не нужно */
     if (!cv::countNonZero(gray))
@@ -260,16 +260,16 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
         }
     }
 
-    showMat("BLACK proc", black);
-    showMat("WHITE proc", white);
-    showMat("Gray proc", gray);
+    showMatDebug("BLACK proc", black);
+    showMatDebug("WHITE proc", white);
+    showMatDebug("Gray proc", gray);
 
     /* ---------- сборка итогового изображения ---------- */
     cv::Mat dst(src.size(), CV_8UC1, cv::Scalar(GRAY));   // базово — серый
     dst.setTo(0, black);
     dst.setTo(254, white);
 
-    showMat("dst", dst);
+    showMatDebug("dst", dst);
     return dst;    // RVO/NRVO или перемещение — без лишних копий
 }
 
@@ -365,7 +365,7 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
     cv::Mat preprocessed = unknownRegionsDissolution(raw);
     cv::Mat out;
     preprocessed.convertTo(out, CV_8U, 255);
-    showMat("unknownRegionsDissolution", out);
+    showMatDebug("unknownRegionsDissolution", out);
 
     // Создаем бинарную карту для определения области кадрирования.
     cv::Mat binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);

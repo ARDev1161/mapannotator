@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 
 project(mapannotator LANGUAGES CXX)
 
-option(MAPANNOTATOR_BUILD_ROS2 "Build ROS 2 node mapannotator_ros2" ON)
+option(MAPANNOTATOR_BUILD_ROS2 "Build ROS 2 node ${PROJECT_NAME}_ros2" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,23 +52,23 @@ add_executable(${PROJECT_NAME} main.cpp
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)
 
 if(MAPANNOTATOR_BUILD_ROS2)
-    add_executable(mapannotator_ros2 ros2_node.cpp
+    add_executable(${PROJECT_NAME}_ros2 ros2_node.cpp
                                    ${ZONEGRAPH_SRC}
                                    ${PREPARING_SRC}
                                    ${SEGMENTATION_SRC}
                                    ${PDDL_SRC}
                                    map_processing.cpp
                                    utils.hpp config.hpp)
-    target_link_libraries(mapannotator_ros2
+    target_link_libraries(${PROJECT_NAME}_ros2
                           ${OpenCV_LIBS} yaml-cpp)
 
-    ament_target_dependencies(mapannotator_ros2
+    ament_target_dependencies(${PROJECT_NAME}_ros2
                               rclcpp
                               nav_msgs
                               std_msgs
                               sensor_msgs)
 
-    install(TARGETS mapannotator_ros2
+    install(TARGETS ${PROJECT_NAME}_ros2
             RUNTIME DESTINATION lib/${PROJECT_NAME})
 
     ament_package()

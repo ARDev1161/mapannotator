@@ -186,7 +186,7 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
         std::cerr << '\n';
     }
 
-    annotateGraph(graphOut, "../mapannotator/config/rules.yaml");
+    annotateGraph(graphOut, "../config/rules.yaml");
 
     /* ---------- DOT‑файл ----------------------------------------------- */
     std::ofstream dot("graph.dot");
@@ -195,7 +195,7 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
     /* ---------- Быстрый предварительный просмотр (OpenCV) -------------- */
     cv::Mat img;
     drawZoneGraph(graphOut, img, 50.0 /*px/м*/, 7 /*радиус*/, true /*подписи ширины*/);
-    showMat("Floor‑Plan Graph", img);
+    showMatDebug("Floor‑Plan Graph", img);
     cv::imwrite("graph_preview.png", img);
 }
 

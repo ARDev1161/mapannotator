@@ -35,6 +35,10 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
 
     cv::Mat aligned;
     MapPreprocessing::mapAlign(raw8u, aligned, cfg.alignmentConfig);
+    if (aligned.empty())
+        aligned = raw8u.clone();
+    mapInfo.height = aligned.rows;
+    mapInfo.width = aligned.cols;
 
     auto [rank, crop] = MapPreprocessing::generateDenoisedAlone(aligned, cfg.denoiseConfig);
 

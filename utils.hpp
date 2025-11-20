@@ -250,7 +250,6 @@ inline bool isHeadlessMode() {
 
 static void showMat(const std::string &windowName, const cv::Mat &mat, bool isColor = true)
 {
-#ifdef SHOW_DEBUG_IMAGES
     if (isHeadlessMode())
         return;
     cv::Mat vis;
@@ -260,6 +259,12 @@ static void showMat(const std::string &windowName, const cv::Mat &mat, bool isCo
         cv::resizeWindow(windowName, mat.cols, mat.rows);
         cv::imshow(windowName, mat);
     }
+}
+
+static void showMatDebug(const std::string &windowName, const cv::Mat &mat, bool isColor = true)
+{
+#ifdef SHOW_DEBUG_IMAGES
+    showMat(windowName, mat, isColor);
 #endif
 }
 

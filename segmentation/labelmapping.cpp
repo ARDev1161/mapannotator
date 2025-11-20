@@ -145,11 +145,11 @@ LabelsInfo LabelMapping::computeLabels(const cv::Mat1b& binaryDilated, int backg
     LabelsInfo labels = getSeeds(dist, 2, 9);
     labels.centroidLabels.setTo(-1, backgroundMask == 0);
 
-    showMat("backgroundMask", backgroundMask);
+    showMatDebug("backgroundMask", backgroundMask);
 
     cv::Mat outLabels;
     labels.centroidLabels.convertTo(outLabels, CV_8U, 255);
-    showMat("labels", outLabels);
+    showMatDebug("labels", outLabels);
 
     return labels;
 }
