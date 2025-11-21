@@ -40,8 +40,6 @@ static cv::Mat1b buildBackgroundMask(const cv::Mat1b &srcBinary,
 static std::vector<SeedLayer>
 buildSeedLayers(const cv::Mat1b &srcBinary, const DownsampleSeedsConfig &cfg)
 {
-    cv::Mat1f freeNorm;
-    srcBinary.convertTo(freeNorm, CV_32F, 1.0 / 255.0);
     cv::Mat1b backgroundMask = buildBackgroundMask(srcBinary,
                                                    cfg.backgroundKernel);
 
@@ -49,13 +47,11 @@ buildSeedLayers(const cv::Mat1b &srcBinary, const DownsampleSeedsConfig &cfg)
     double sigma = cfg.sigmaStart;
     for (int iter = 0; iter < cfg.maxIter; ++iter) {
         cv::Mat blurred;
-        cv::GaussianBlur(freeNorm, blurred, cv::Size(), sigma, sigma,
+        cv::GaussianBlur(srcBinary, blurred, cv::Size(), sigma, sigma,
                          cv::BORDER_REPLICATE);
-        cv::Mat thresholded;
-        cv::threshold(blurred, thresholded, cfg.threshold, 1.0,
-                      cv::THRESH_BINARY);
         cv::Mat1b bin;
-        thresholded.convertTo(bin, CV_8U, 255);
+        const double thresh = std::clamp(cfg.threshold, 0.0, 1.0) * 255.0;
+        cv::threshold(blurred, bin, thresh, 255.0, cv::THRESH_BINARY);
         bin.setTo(0, backgroundMask);               // уверенный фон = препятствие
 
         if (cv::countNonZero(bin) == 0)
