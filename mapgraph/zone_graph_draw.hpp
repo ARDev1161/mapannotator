@@ -26,6 +26,7 @@ namespace mapping {
  * @param radius_px   Radius of the node circle in pixels.
  * @param drawWidths  Whether to display passage widths.
  * @param invertY     Flip the Y axis when drawing.
+ * @param maxCanvasPx Cap longest canvas dimension (pixels); 0 disables capping.
  */
 template<typename GraphT = IZoneGraph>
 void drawZoneGraph(const GraphT& g,
