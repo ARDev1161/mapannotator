@@ -34,11 +34,14 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     raw.convertTo(raw8u, CV_8UC1);
 
     cv::Mat aligned;
-    MapPreprocessing::mapAlign(raw8u, aligned, cfg.alignmentConfig);
+    double alignmentAngle = MapPreprocessing::mapAlign(raw8u,
+                                                       aligned,
+                                                       cfg.alignmentConfig);
     if (aligned.empty())
         aligned = raw8u.clone();
     mapInfo.height = aligned.rows;
     mapInfo.width = aligned.cols;
+    mapInfo.theta += alignmentAngle;
 
     auto [rank, crop] = MapPreprocessing::generateDenoisedAlone(aligned, cfg.denoiseConfig);
 

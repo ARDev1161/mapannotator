@@ -134,7 +134,11 @@ int main(int argc, char** argv)
 
     // выравнивание карты(поворот)
     cv::Mat aligned;
-    MapPreprocessing::mapAlign(raw8u, aligned, segmenterConfig.alignmentConfig);
+    double alignmentAngle = MapPreprocessing::mapAlign(raw8u,
+                                                       aligned,
+                                                       segmenterConfig.alignmentConfig);
+    mapInfo.theta += alignmentAngle;
+
     if (aligned.empty())
         aligned = raw8u.clone();
     showMatDebug("aligned Map", aligned);

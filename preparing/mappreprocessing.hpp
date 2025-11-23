@@ -52,7 +52,7 @@ public:
      */
     static cv::Mat removeGrayIslands(const cv::Mat& src, int connectivity = 8);
 
-    static bool mapAlign(const cv::Mat& raw, cv::Mat& out, const AlignmentConfig& config);
+    static double mapAlign(const cv::Mat &raw, cv::Mat &out, const AlignmentConfig &config);
 };
 
 #endif // MAPPREPROCESSING_H

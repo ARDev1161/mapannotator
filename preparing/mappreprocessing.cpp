@@ -393,14 +393,14 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
     return { rank, cropInfo };
 }
 
-bool MapPreprocessing::mapAlign(const cv::Mat& raw, cv::Mat& out, const AlignmentConfig& config){
+double MapPreprocessing::mapAlign(const cv::Mat &raw, cv::Mat &out, const AlignmentConfig &config)
+{
     double alignmentAngle = 0.0;
     if (config.enable) {
         // Находим угол выравнивания с помощью MapAlignment.
         alignmentAngle = MapPreprocessing::findAlignmentAngle(raw, config);
         out = MapPreprocessing::rotateImage(raw, alignmentAngle);
-        return true;
     }
 
-    return false;
+    return alignmentAngle;
 }
