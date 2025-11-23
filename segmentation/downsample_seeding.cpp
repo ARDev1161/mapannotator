@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <limits>
 #include <iostream>
@@ -12,16 +13,6 @@ struct SeedLayer
 {
     cv::Mat1i labels;   ///< connected components of free cores
 };
-
-using SeedMaskMap = std::unordered_map<int, cv::Mat1b>;
-
-/** Helper that materialises a binary mask for the requested label. */
-static cv::Mat1b labelMask(const cv::Mat1i &labels, int label)
-{
-    cv::Mat1b mask(labels.size(), uchar(0));
-    cv::compare(labels, label, mask, cv::CMP_EQ);
-    return mask;
-}
 
 /** Build a background mask using a small erosion kernel. */
 static cv::Mat1b buildBackgroundMask(const cv::Mat1b &srcBinary,
@@ -66,14 +57,6 @@ buildSeedLayers(const cv::Mat1b &srcBinary, const DownsampleSeedsConfig &cfg)
         sigma += cfg.sigmaStep;
     }
     return layers;
-}
-
-/** Register or update the seed mask associated with a global id. */
-static void registerSeed(SeedMaskMap &seedMasks,
-                         int globalId,
-                         const cv::Mat1b &mask)
-{
-    seedMasks[globalId] = mask.clone();
 }
 
 } // namespace
@@ -154,7 +137,11 @@ generateDownsampleSeeds(const cv::Mat1b &srcBinary,
     if (layers.empty())
         return {};
 
-    SeedMaskMap seedMasks;
+    cv::Mat1i seedLabelMap(srcBinary.size(), int(0)); // global seed id per pixel
+    std::unordered_set<int> activeSeeds;
+    std::vector<int> seedOrder;
+    seedOrder.reserve(cfg.maxSeeds > 0 ? cfg.maxSeeds : 256);
+    cv::Mat1b scratchMask(srcBinary.size(), uchar(0)); // reused buffer
     int nextGlobalId = 1;
     std::unordered_map<int, int> prevLocalToGlobal;
     bool abortedByLimit = false;
@@ -166,14 +153,17 @@ generateDownsampleSeeds(const cv::Mat1b &srcBinary,
             return true; // skip tiny seeds silently
 
         if (cfg.maxSeeds > 0 &&
-            static_cast<int>(seedMasks.size()) >= cfg.maxSeeds)
+            static_cast<int>(activeSeeds.size()) >= cfg.maxSeeds)
         {
             abortedByLimit = true;
             return false;
         }
 
-        cv::Mat1b mask = labelMask(labelMap, info.label);
-        registerSeed(seedMasks, globalId, mask);
+        cv::compare(labelMap, info.label, scratchMask, cv::CMP_EQ);
+        seedLabelMap.setTo(globalId, scratchMask);
+
+        if (activeSeeds.insert(globalId).second)
+            seedOrder.push_back(globalId);
         return true;
     };
 
@@ -234,7 +224,11 @@ generateDownsampleSeeds(const cv::Mat1b &srcBinary,
                         if (!tryRegisterSeed(parentGlobal, layer.labels, entry))
                             break;
                     } else {
-                        seedMasks.erase(parentGlobal); // родитель не лист
+                        if (activeSeeds.erase(parentGlobal))
+                        {
+                            cv::compare(seedLabelMap, parentGlobal, scratchMask, cv::CMP_EQ);
+                            seedLabelMap.setTo(0, scratchMask);
+                        }
                         int gid = nextGlobalId++;
                         if (!tryRegisterSeed(gid, layer.labels, entry))
                             break;
@@ -261,16 +255,14 @@ generateDownsampleSeeds(const cv::Mat1b &srcBinary,
         return {};
     }
 
-    std::vector<int> ids;
-    ids.reserve(seedMasks.size());
-    for (const auto &kv : seedMasks)
-        ids.push_back(kv.first);
-    std::sort(ids.begin(), ids.end());
-
     std::vector<ZoneMask> seeds;
-    seeds.reserve(ids.size());
-    for (int id : ids) {
-        seeds.push_back({id, seedMasks[id]});
+    seeds.reserve(seedOrder.size());
+    for (int id : seedOrder) {
+        if (activeSeeds.find(id) == activeSeeds.end())
+            continue;
+        cv::Mat1b mask;
+        cv::compare(seedLabelMap, id, mask, cv::CMP_EQ);
+        seeds.push_back({id, std::move(mask)});
     }
     return seeds;
 }

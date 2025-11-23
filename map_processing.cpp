@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <fstream>
 #include <unordered_set>
+#include <array>
 #include <opencv2/ximgproc.hpp>
 #include <cmath>
 #include <filesystem>
+#include <deque>
 
 #include "mapgraph/zone_graph_dot.hpp"
 #include "mapgraph/zone_graph_draw.hpp"
@@ -210,7 +212,12 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
 
     /* ---------- Быстрый предварительный просмотр (OpenCV) -------------- */
     cv::Mat img;
-    drawZoneGraph(graphOut, img, 50.0 /*px/м*/, 7 /*радиус*/, true /*подписи ширины*/);
+    drawZoneGraph(graphOut, img,
+                  50.0 /*px/м*/,
+                  7 /*радиус*/,
+                  true /*подписи ширины*/,
+                  false /*invertY*/,
+                  4000 /*max canvas px*/);
     showMatDebug("Floor‑Plan Graph", img);
     cv::imwrite("graph_preview.png", img);
 }
@@ -392,52 +399,62 @@ static std::size_t attachPixelsToNearestZone(cv::Mat1b &occupancy,
     const int rows = occupancy.rows, cols = occupancy.cols;
     const int Z = static_cast<int>(allZones.size());
 
-    std::vector<cv::Mat1f> distMaps(Z);
+    // ownerMap keeps the index of the zone that currently owns the pixel; -1 = free/unassigned.
+    cv::Mat1i ownerMap(occupancy.rows, occupancy.cols, int(-1));
+    std::deque<cv::Point> queue;
+    queue.clear();
 
+    std::vector<cv::Point> tmpPts;
+    tmpPts.reserve(rows * cols / 8);
+
+    // Seed the BFS with all zone pixels.
     for (int zi = 0; zi < Z; ++zi)
     {
         auto &z = allZones[zi];
         CV_Assert(z.mask.size() == occupancy.size() && z.mask.type() == CV_8UC1);
 
-        cv::Mat1b invMask;
-        cv::bitwise_not(z.mask, invMask);
-
-        cv::distanceTransform(invMask,
-                              distMaps[zi],
-                              cv::DIST_L2,
-                              3);
+        tmpPts.clear();
+        cv::findNonZero(z.mask, tmpPts);
+        for (const auto &p : tmpPts)
+        {
+            ownerMap(p) = zi;
+            queue.push_back(p);
+        }
     }
+
+    const std::array<cv::Point, 8> neighbors = {
+        cv::Point{1, 0}, cv::Point{-1, 0}, cv::Point{0, 1}, cv::Point{0, -1},
+        cv::Point{1, 1}, cv::Point{1, -1}, cv::Point{-1, 1}, cv::Point{-1, -1}
+    };
 
     std::size_t attached = 0;
 
-    for (int y = 0; y < rows; ++y)
+    while (!queue.empty())
     {
-        uchar *occRow = occupancy.ptr<uchar>(y);
+        const cv::Point p = queue.front();
+        queue.pop_front();
+        int ownerIdx = ownerMap(p);
+        if (ownerIdx < 0 || ownerIdx >= Z)
+            continue;
 
-        for (int x = 0; x < cols; ++x)
+        for (const auto &d : neighbors)
         {
-            if (occRow[x] != 0)
+            int nx = p.x + d.x;
+            int ny = p.y + d.y;
+            if ((unsigned)nx >= (unsigned)cols || (unsigned)ny >= (unsigned)rows)
                 continue;
 
-            float bestDist = std::numeric_limits<float>::max();
-            int   bestIdx  = -1;
+            if (occupancy(ny, nx) != 0) // already assigned or wall/zone
+                continue;
 
-            for (int zi = 0; zi < Z; ++zi)
-            {
-                float d = distMaps[zi].at<float>(y, x);
-                if (d < bestDist)
-                {
-                    bestDist = d;
-                    bestIdx  = zi;
-                }
-            }
+            if (ownerMap(ny, nx) != -1)
+                continue;
 
-            if (bestIdx >= 0)
-            {
-                allZones[bestIdx].mask(y, x) = 255;
-                occRow[x]                    = 255;
-                ++attached;
-            }
+            ownerMap(ny, nx) = ownerIdx;
+            occupancy(ny, nx) = 255;
+            allZones[ownerIdx].mask(ny, nx) = 255;
+            queue.push_back({nx, ny});
+            ++attached;
         }
     }
 
@@ -651,12 +668,17 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
     cv::Mat1b src255;
     srcBinary.convertTo(src255, CV_8U, 255);
 
+    const int stallLimit = 5;
+    int prevTodoSize = static_cast<int>(todo.size());
+    int stallIters = 0;
+
+    cv::Mat1b kernel = cv::getStructuringElement(
+                           cv::MORPH_RECT, cv::Size(2*1+1, 2*1+1));
+
     for (int iter = 0; iter < params.legacyMaxIter && !todo.empty(); ++iter)
     {
         double sigma = (iter + 1) * params.legacySigmaStep;
 
-        cv::Mat1b kernel = cv::getStructuringElement(
-                               cv::MORPH_RECT, cv::Size(2*1+1, 2*1+1));
         cv::erode(eroded, eroded, kernel, cv::Point(-1,-1), 1);
 
         cv::GaussianBlur(eroded, blurred, cv::Size(0,0), sigma, sigma,
@@ -678,6 +700,21 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
             cv::dilate(z.mask, z.mask, kernel, cv::Point(-1,-1), iter + 1);
             allZones.push_back( std::move(z) );
             todo.erase(z.label);
+            stallIters = 0;
+        }
+
+        const int curTodo = static_cast<int>(todo.size());
+        if (curTodo == prevTodoSize)
+            ++stallIters;
+        else
+            stallIters = 0;
+        prevTodoSize = curTodo;
+
+        if (stallIters >= stallLimit) {
+            std::cerr << "[warn] legacy segmentation stalled for " << stallIters
+                      << " iterations, breaking early with "
+                      << curTodo << " zones pending\n";
+            break;
         }
     }
 

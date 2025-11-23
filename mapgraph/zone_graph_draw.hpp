@@ -33,7 +33,8 @@ void drawZoneGraph(const GraphT& g,
                    double scale        = 0.05,
                    int    radius_px    = 4,
                    bool   drawWidths   = false,
-                   bool invertY = false)
+                   bool invertY = false,
+                   int   maxCanvasPx = 4000)
 {
     if (g.allNodes().empty()) {                 // ← 1. пустой граф
         canvas = cv::Mat::zeros(200, 200, CV_8UC3);
@@ -53,10 +54,24 @@ void drawZoneGraph(const GraphT& g,
         maxY = std::max(maxY, n->centroid().y);
     }
 
+    const double spanX = std::max(1e-6, maxX - minX);
+    const double spanY = std::max(1e-6, maxY - minY);
+
+    // Cap scale so the larger dimension fits into maxCanvasPx (plus padding).
+    if (maxCanvasPx > 0)
+    {
+        double maxSpan = std::max(spanX, spanY);
+        if (maxSpan > 0)
+        {
+            double maxAllowedScale = static_cast<double>(maxCanvasPx) / maxSpan;
+            scale = std::min(scale, maxAllowedScale);
+        }
+    }
+
     /* ---------- размеры холста ---------------------------------------- */
     const int pad = 50;                                  // рамка
-    int w = static_cast<int>(std::ceil((maxX - minX) * scale)) + pad * 2;
-    int h = static_cast<int>(std::ceil((maxY - minY) * scale)) + pad * 2;
+    int w = static_cast<int>(std::ceil(spanX * scale)) + pad * 2;
+    int h = static_cast<int>(std::ceil(spanY * scale)) + pad * 2;
 
     w = std::max(w, 100);                                // защитный минимум
     h = std::max(h, 100);

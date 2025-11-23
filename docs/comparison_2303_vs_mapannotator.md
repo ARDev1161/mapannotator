@@ -18,6 +18,7 @@
    - Использование `map.yaml` для установки `MapInfo` и метрик переводов между пикселями и миром (`utils.hpp`).
 2. **Сегментация** (`map_processing.cpp`).
    - `segmentByGaussianThreshold` выполняет итеративную гауссову фильтрацию и пороговую сегментацию по свободным пикселям, но **сохраняет исходные центроиды** из `LabelMapping` и довороточивает зоны через `attachPixelsToNearestZone`, `mergeLonelyFreeAreas`, `keepCentroidComponent`.
+   - `labelsOut` задаётся в двух местах по двум веткам алгоритма: если включён `useDownsampleSeeds`, то центроиды и маски берутся из даун-семпл семян и сразу собираются `buildLabelsFromZones` (legacy не используется); если семян нет или выключены, запускается legacy-цикл (Gaussian+threshold+extractIsolatedZones), и только по его завершении финальные маски снова конвертируются в `buildLabelsFromZones`.
    - Работает с бинаризованной свободной областью, акцент на сохранении контуров препятствий через `wallMask`.
 3. **Граф зон** (`mapgraph/`).
    - `buildGraph` вычисляет смежность по пиксельным маскам, переводит центры в мировые координаты (`pixelToWorld`), создаёт `ZoneGraph`, запускает `ZoneClassifier` на основе `config/rules.yaml` и сохраняет DOT/PNG.
