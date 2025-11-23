@@ -205,7 +205,9 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
                           int kernelSize,
                           int maxIter) // «предохранитель» от бесконечности
 {
-    cv::Mat out;
+    CV_UNUSED(maxIter); // оставлен для совместимости сигнатуры
+    CV_UNUSED(kernelSize);
+
     showMatDebug("raw src", src);
 
     CV_Assert(src.type() == CV_8UC1);
@@ -228,46 +230,48 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     if (!cv::countNonZero(gray))
         return src.clone();
 
-    /* ---------- struct-элемент ---------- */
-    cv::Mat kernel = cv::getStructuringElement(
-        cv::MORPH_RECT, cv::Size(kernelSize, kernelSize));
+    const bool hasBlack = cv::countNonZero(black) > 0;
+    const bool hasWhite = cv::countNonZero(white) > 0;
 
-    /* ---------- рабочие буферы ---------- */
-    cv::Mat tmp, newMask, invGray;
-
-    for (int it = 0; (it < maxIter) && cv::countNonZero(gray); ++it)
-    {
-        /* ===== 1. ЧЁРНЫЙ шаг: erode → пересечение с gray ===== */
-        cv::erode(black, tmp, kernel);                // tmp = erode(black)
-        cv::bitwise_and(tmp, gray, newMask);          // новые чёрные
-        if (cv::countNonZero(newMask))
-        {
-            black |= newMask;                         // black ← black ∪ new
-            cv::bitwise_not(newMask, invGray);
-            gray &= invGray;                          // gray ← gray \ new
-        }
-
-        if (!cv::countNonZero(gray)) break;           // серый кончился
-
-        /* ===== 2. БЕЛЫЙ шаг: dilate → пересечение с gray ===== */
-        cv::dilate(white, tmp, kernel);               // tmp = dilate(white)
-        cv::bitwise_and(tmp, gray, newMask);          // новые белые
-        if (cv::countNonZero(newMask))
-        {
-            white |= newMask;                         // white ← white ∪ new
-            cv::bitwise_not(newMask, invGray);
-            gray &= invGray;                          // gray ← gray \ new
-        }
-    }
-
-    showMatDebug("BLACK proc", black);
-    showMatDebug("WHITE proc", white);
-    showMatDebug("Gray proc", gray);
-
-    /* ---------- сборка итогового изображения ---------- */
-    cv::Mat dst(src.size(), CV_8UC1, cv::Scalar(GRAY));   // базово — серый
+    // ---------- Быстрая разметка неопределённых областей ----------
+    cv::Mat dst(src.size(), CV_8UC1, cv::Scalar(GRAY));
     dst.setTo(0, black);
     dst.setTo(254, white);
+
+    if (!hasBlack && !hasWhite)
+        return dst; // только серое — оставить как есть
+
+    if (!hasBlack || !hasWhite)
+    {
+        // Только один класс присутствует: заливаем серое им.
+        dst.setTo(hasBlack ? 0 : 254, gray);
+        showMatDebug("dst", dst);
+        return dst;
+    }
+
+    // Есть оба класса: выбираем ближайший через distance transform.
+    cv::Mat invBlack, invWhite;
+    cv::bitwise_not(black, invBlack);   // 0 там, где black=255
+    cv::bitwise_not(white, invWhite);   // 0 там, где white=255
+
+    cv::Mat1f distToBlack, distToWhite;
+    cv::distanceTransform(invBlack, distToBlack, cv::DIST_L2, 3);
+    cv::distanceTransform(invWhite, distToWhite, cv::DIST_L2, 3);
+
+    // Выбираем класс с минимальной дистанцией.
+    for (int y = 0; y < dst.rows; ++y)
+    {
+        uchar *dstRow = dst.ptr<uchar>(y);
+        const uchar *grayRow = gray.ptr<uchar>(y);
+        const float *dbRow = distToBlack.ptr<float>(y);
+        const float *dwRow = distToWhite.ptr<float>(y);
+        for (int x = 0; x < dst.cols; ++x)
+        {
+            if (!grayRow[x])
+                continue;
+            dstRow[x] = (dbRow[x] <= dwRow[x]) ? 0 : 254;
+        }
+    }
 
     showMatDebug("dst", dst);
     return dst;    // RVO/NRVO или перемещение — без лишних копий
