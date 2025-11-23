@@ -146,6 +146,21 @@ int main(int argc, char** argv)
     // Этап денойзинга
     cv::Mat out;
     auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned, segmenterConfig.denoiseConfig);
+    {
+        // Crop shifts the origin by removed left/bottom margins; apply to mapInfo.
+        int newWidth  = aligned.cols - cropInfo.left - cropInfo.right;
+        int newHeight = aligned.rows - cropInfo.top  - cropInfo.bottom;
+        if (newWidth > 0 && newHeight > 0) {
+            double dx = cropInfo.left   * mapInfo.resolution;
+            double dy = cropInfo.bottom * mapInfo.resolution;
+            double c  = std::cos(mapInfo.theta);
+            double s  = std::sin(mapInfo.theta);
+            mapInfo.originX += dx * c - dy * s;
+            mapInfo.originY += dx * s + dy * c;
+            mapInfo.width  = rank.cols;
+            mapInfo.height = rank.rows;
+        }
+    }
     rank.convertTo(out, CV_8U, 255);
     showMatDebug("Denoised Map", out);
 
@@ -187,8 +202,8 @@ int main(int argc, char** argv)
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
-    // Отрисовка графа связности поверх оригинальной карты
-    cv::Mat vis = renderZonesOverlay(zones, raw8u, cropInfo, 0.65);
+    // Отрисовка графа связности поверх кадрированного/выравненного изображения
+    cv::Mat vis = renderZonesOverlay(zones, aligned, cropInfo, 0.65);
     mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
 
     cv::imwrite("segmentation_overlay.png", vis);

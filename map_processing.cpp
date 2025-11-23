@@ -105,8 +105,8 @@ cv::Mat renderZonesOverlay(const std::vector<ZoneMask> &zones,
     }
 
     alpha = std::clamp(alpha, 0.0, 1.0);
-    cv::addWeighted(roiView, 1.0 - alpha, tinted, alpha, 0.0, roiView);
-    return baseColor;
+    cv::addWeighted(roiView, 1.0 - alpha, tinted, alpha, 0.0, tinted);
+    return tinted;
 }
 
 //-------------------------------------------------------------------------- 
@@ -145,8 +145,10 @@ static void annotateGraph(ZoneGraph &graph, const std::string &rulefile)
 //--------------------------------------------------------------------------
 //  buildGraph()
 //--------------------------------------------------------------------------
-void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
-                cv::Mat1i zonesMat, const MapInfo & mapParams,
+void buildGraph(ZoneGraph &graphOut,
+                std::vector<ZoneMask> zones,
+                cv::Mat1i zonesMat,
+                const MapInfo &mapParams,
                 std::unordered_map<int, cv::Point> centroids)
 {
     std::unordered_map<ZoneType, NodePtr> node;   // для удобства соединений

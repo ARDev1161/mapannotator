@@ -44,6 +44,21 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     mapInfo.theta += alignmentAngle;
 
     auto [rank, crop] = MapPreprocessing::generateDenoisedAlone(aligned, cfg.denoiseConfig);
+    {
+        // Account for cropping when translating pixel coords to the world frame.
+        int newWidth  = aligned.cols - crop.left - crop.right;
+        int newHeight = aligned.rows - crop.top  - crop.bottom;
+        if (newWidth > 0 && newHeight > 0) {
+            double dx = crop.left   * mapInfo.resolution;
+            double dy = crop.bottom * mapInfo.resolution;
+            double c  = std::cos(mapInfo.theta);
+            double s  = std::sin(mapInfo.theta);
+            mapInfo.originX += dx * c - dy * s;
+            mapInfo.originY += dx * s + dy * c;
+            mapInfo.width  = rank.cols;
+            mapInfo.height = rank.rows;
+        }
+    }
 
     cv::Mat1b binaryDilated = erodeBinary(rank, cfg.dilateConfig.kernelSize,
                                           cfg.dilateConfig.iterations);
