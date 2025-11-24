@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <opencv2/ximgproc.hpp>
+#include <optional>
 #include <unordered_set>
 
 #include "mapgraph/zone_graph_dot.hpp"
@@ -87,36 +88,13 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
     return dir;
   };
 
-  auto extendFrom = [&](int lineIdx, const cv::Point &start,
-                        const cv::Point2f &dirUnit) {
-    cv::Point2f pos = cv::Point2f(start);
-    const int maxSteps = result.rows + result.cols;
-
-    for (int step = 0; step < maxSteps;
-         ++step) // защитный лимит, чтобы не зациклиться
-    {
-      cv::Point2f next = pos + dirUnit;
-      int x = cvRound(next.x);
-      int y = cvRound(next.y);
-      if (x < 0 || y < 0 || x >= result.cols || y >= result.rows)
-        break;
-
-      if (result(y, x) == 0) // расширяем только в свободное (чёрное)
-      {
-        result(y, x) = 255;
-        pos = next;
-      } else {
-        // упёрлись в белое — этот endpoint больше не используем
-        auto it = lineEndpoints.find(lineIdx);
-        if (it != lineEndpoints.end()) {
-          auto &vec = it->second;
-          vec.erase(std::remove(vec.begin(), vec.end(), start), vec.end());
-        }
-        break;
-      }
-    }
+  // Активные концы: растём синхронно на 1 пиксель за итерацию
+  struct ActiveEndpoint {
+    cv::Point2f pos;
+    cv::Point2f dir;
+    int lineIdx;
   };
-
+  std::vector<ActiveEndpoint> active;
   for (size_t i = 0; i < lines.size(); ++i) {
     auto it = lineEndpoints.find((int)i);
     if (it == lineEndpoints.end() || it->second.empty())
@@ -125,7 +103,39 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
       auto dirOpt = endpointDir(ep, lines[i]);
       if (!dirOpt)
         continue;
-      extendFrom((int)i, ep, *dirOpt);
+      active.push_back({cv::Point2f(ep), *dirOpt, static_cast<int>(i)});
+    }
+  }
+
+  const int maxSteps = result.rows + result.cols;
+  for (int step = 0; step < maxSteps && !active.empty(); ++step) {
+    std::vector<size_t> toRemove;
+    toRemove.reserve(active.size());
+
+    for (size_t idx = 0; idx < active.size(); ++idx) {
+      auto &ae = active[idx];
+      cv::Point2f next = ae.pos + ae.dir;
+      int x = cvRound(next.x);
+      int y = cvRound(next.y);
+      if (x < 0 || y < 0 || x >= result.cols || y >= result.rows) {
+        toRemove.push_back(idx);
+        continue;
+      }
+
+      if (result(y, x) == 0) {
+        result(y, x) = 255; // рисуем 1 пиксель за итерацию
+        ae.pos = next;
+      } else {
+        toRemove.push_back(idx); // упёрлись в белое
+      }
+    }
+
+    if (!toRemove.empty()) {
+      std::sort(toRemove.rbegin(), toRemove.rend());
+      for (size_t idx : toRemove) {
+        active[idx] = active.back();
+        active.pop_back();
+      }
     }
   }
 
@@ -600,7 +610,6 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
   cv::Mat blurred, bin;
 
   cv::Mat1b eroded = srcBinary.clone();
-  cv::Mat1b extended = extendWallsUntilHit(srcBinary);
 
   const int stallLimit = 5;
   int prevTodoSize = static_cast<int>(todo.size());
@@ -625,9 +634,6 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
 
     cv::Mat1b seg8u;
     bin.convertTo(seg8u, CV_8U, 255);
-
-    // Добавляем продлённые стены в маску занятых
-    cv::bitwise_or(seg8u, extended, seg8u);
 
     if (cv::countNonZero(bin) == 0) {
       std::cerr << "[warn] free space vanished at iter " << iter << '\n';
@@ -666,8 +672,11 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
   if (!todo.empty()) {
       cv::Mat out;
       cv::Mat1b occ = LabelMapping::buildOccupancyMask(src255, allZones);
+      cv::Mat1b extended = extendWallsUntilHit(srcBinary);
 
-      auto extended = extendWallsUntilHit(srcBinary);
+      // Добавляем продлённые стены в маску занятых
+      cv::bitwise_or(occ, extended, occ);
+
       occ.convertTo(out, CV_8U, 255);
       showMat("Extended", out);
 
