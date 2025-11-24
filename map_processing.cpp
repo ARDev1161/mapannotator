@@ -600,6 +600,7 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
   cv::Mat blurred, bin;
 
   cv::Mat1b eroded = srcBinary.clone();
+  cv::Mat1b extended = extendWallsUntilHit(srcBinary);
 
   const int stallLimit = 5;
   int prevTodoSize = static_cast<int>(todo.size());
@@ -624,6 +625,9 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
 
     cv::Mat1b seg8u;
     bin.convertTo(seg8u, CV_8U, 255);
+
+    // Добавляем продлённые стены в маску занятых
+    cv::bitwise_or(seg8u, extended, seg8u);
 
     if (cv::countNonZero(bin) == 0) {
       std::cerr << "[warn] free space vanished at iter " << iter << '\n';
@@ -660,26 +664,31 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
   // If some centroids never got isolated, flood-fill their component and
   // then run the same cleanup/attachment steps as the fast path.
   if (!todo.empty()) {
-    cv::Mat1b occ = LabelMapping::buildOccupancyMask(src255, allZones);
+      cv::Mat out;
+      cv::Mat1b occ = LabelMapping::buildOccupancyMask(src255, allZones);
 
-    for (auto it = todo.begin(); it != todo.end();) {
-      if (occ(it->second) == 0) {
-        std::cerr << "Not segmented (no zone under label): " << it->first
-                  << it->second << '\n';
+      auto extended = extendWallsUntilHit(srcBinary);
+      occ.convertTo(out, CV_8U, 255);
+      showMat("Extended", out);
 
-        ZoneMask z;
-        z.label = it->first;
-        z.mask = buildFloodMask(occ, it->second);
+      for (auto it = todo.begin(); it != todo.end();) {
+          if (occ(it->second) == 0) {
+              std::cerr << "Not segmented (no zone under label): " << it->first << it->second
+                        << '\n';
 
-        checkMatCompatibility(occ, z.mask);
-        occ.setTo(255, z.mask);
+              ZoneMask z;
+              z.label = it->first;
+              z.mask = buildFloodMask(occ, it->second);
 
-        allZones.push_back(std::move(z));
+              checkMatCompatibility(occ, z.mask);
+              occ.setTo(255, z.mask);
 
-        it = todo.erase(it);
-      } else
-        ++it;
-    }
+              allZones.push_back(std::move(z));
+
+              it = todo.erase(it);
+          } else
+              ++it;
+      }
 
     eraseWallsFromZones(srcBinary, allZones);
 
