@@ -39,7 +39,6 @@
     /** Configuration for the denoising stage (generate_denoised_alone). */
     struct DenoiseConfig {
         double binaryForCropThreshold = 0.2; ///< threshold for cropping mask
-        int cropPadding;                     ///< padding when cropping
         double binaryThreshold = 0.2;        ///< threshold for noise removal
         int compOutMinSize = 40;             ///< minimal size of outer components
         int compInMinSize = 40;              ///< minimal size of inner components

@@ -371,9 +371,39 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
     preprocessed.convertTo(out, CV_8U, 255);
     showMatDebug("unknownRegionsDissolution", out);
 
-    // Создаем бинарную карту для определения области кадрирования.
+    // Создаем бинарную карту и вычисляем обрезку по наибольшему контуру.
     cv::Mat binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
-    Segmentation::CropInfo cropInfo = Segmentation::cropSingleInfo(binaryForCrop, config.cropPadding);
+    cv::Mat binaryForCrop8u;
+    binaryForCrop.convertTo(binaryForCrop8u, CV_8U);
+
+    // Кадрируем по наибольшему контуру, чтобы отсечь пустые поля без ручного padding.
+    auto cropByLargestContour = [](const cv::Mat &binary) -> Segmentation::CropInfo
+    {
+        CV_Assert(binary.type() == CV_8UC1);
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        double bestArea = 0.0;
+        cv::Rect best;
+        for (const auto &c : contours)
+        {
+            double area = cv::contourArea(c);
+            if (area > bestArea)
+            {
+                bestArea = area;
+                best = cv::boundingRect(c);
+            }
+        }
+        if (bestArea <= 0.0)
+            return {};
+
+        Segmentation::CropInfo info;
+        info.left   = best.x;
+        info.top    = best.y;
+        info.right  = binary.cols - (best.x + best.width);
+        info.bottom = binary.rows - (best.y + best.height);
+        return info;
+    };
+    Segmentation::CropInfo cropInfo = cropByLargestContour(binaryForCrop8u);
 
     // Освобождаем память, если необходимо.
     // Обрезаем исходное изображение до ROI.

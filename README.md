@@ -128,7 +128,7 @@ and creates visual previews of the computed zones.
 - `ros2_node.cpp` экспортирует параметры, которые можно передавать через
   `ros2 run ... --ros-args -p <name>:=<value>`:
   - `map_topic`, `pddl_topic`, `segmentation_topic`;
-  - `denoise.crop_padding`, `denoise.rank_binary_threshold`;
+  - `denoise.rank_binary_threshold`;
   - `dilate.kernel_size`, `dilate.iterations`;
   - `alignment.enable`;
   - `segmentation.max_iter`, `segmentation.sigma_step`,

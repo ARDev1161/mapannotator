@@ -102,8 +102,6 @@ public:
         pddl_topic_ = this->declare_parameter("pddl_topic", std::string("/pddl/map"));
         segmentation_topic_ = this->declare_parameter("segmentation_topic", std::string("/mapannotator/segmentation"));
 
-        config_.denoiseConfig.cropPadding =
-            this->declare_parameter("denoise.crop_padding", 5);
         config_.denoiseConfig.rankBinaryThreshold =
             this->declare_parameter("denoise.rank_binary_threshold", 0.2);
         config_.dilateConfig.kernelSize =

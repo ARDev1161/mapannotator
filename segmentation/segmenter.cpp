@@ -1,4 +1,5 @@
 #include "segmenter.hpp"
+#include <algorithm>
 #include <iostream>
 
 // Реализация генерации денойзенной карты.
@@ -8,7 +9,37 @@ std::pair<cv::Mat, Segmentation::CropInfo> Segmenter::generateDenoisedAlone(cons
 
     // Создаем бинарную карту для определения области кадрирования.
     cv::Mat binaryForCrop = makeBinary(raw, config.binaryForCropThreshold * 255, 255);
-    Segmentation::CropInfo cropInfo = Segmentation::cropSingleInfo(binaryForCrop, config.cropPadding);
+    cv::Mat binaryForCrop8u;
+    binaryForCrop.convertTo(binaryForCrop8u, CV_8U);
+
+    auto cropByLargestContour = [](const cv::Mat &binary) -> Segmentation::CropInfo
+    {
+        CV_Assert(binary.type() == CV_8UC1);
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        double bestArea = 0.0;
+        cv::Rect best;
+        for (const auto &c : contours)
+        {
+            double area = cv::contourArea(c);
+            if (area > bestArea)
+            {
+                bestArea = area;
+                best = cv::boundingRect(c);
+            }
+        }
+        if (bestArea <= 0.0)
+            return {};
+
+        Segmentation::CropInfo info;
+        info.left   = best.x;
+        info.top    = best.y;
+        info.right  = binary.cols - (best.x + best.width);
+        info.bottom = binary.rows - (best.y + best.height);
+        return info;
+    };
+
+    Segmentation::CropInfo cropInfo = cropByLargestContour(binaryForCrop8u);
 
     // Освобождаем память, если необходимо.
     // Обрезаем исходное изображение до ROI.
