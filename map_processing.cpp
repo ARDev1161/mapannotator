@@ -6,6 +6,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <opencv2/ximgproc.hpp>
 #include <optional>
 #include <unordered_set>
@@ -55,7 +56,11 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
   };
 
   // line_id -> endpoints, принадлежащие этому отрезку
-  std::unordered_map<int, std::vector<cv::Point>> lineEndpoints;
+  struct EndpointInfo {
+    cv::Point point;
+    float maxDistanceAlong = std::numeric_limits<float>::infinity();
+  };
+  std::unordered_map<int, std::vector<EndpointInfo>> lineEndpoints;
   const float kEndpointDist =
       1.5f; // насколько близко endpoint должен лежать к линии
   for (size_t i = 0; i < lines.size(); ++i) {
@@ -63,7 +68,7 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
     cv::Point b(lines[i][2], lines[i][3]);
     for (const auto &ep : endpoints) {
       if (pointToSegmentDist(ep, a, b) <= kEndpointDist)
-        lineEndpoints[(int)i].push_back(ep);
+        lineEndpoints[(int)i].push_back({ep});
     }
   }
 
@@ -88,10 +93,67 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
     return dir;
   };
 
+  auto cross2d = [](const cv::Point2f &a, const cv::Point2f &b) {
+    return a.x * b.y - a.y * b.x;
+  };
+
+  auto endpointIntersectionDistance =
+      [&](int lineIdx, const EndpointInfo &info) -> float {
+    auto dirOpt = endpointDir(info.point, lines[lineIdx]);
+    if (!dirOpt)
+      return std::numeric_limits<float>::infinity();
+
+    cv::Point2f epPoint(info.point);
+    cv::Point2f epDir = *dirOpt; // уже нормализовано
+
+    cv::Point2f p0(lines[lineIdx][0], lines[lineIdx][1]);
+    cv::Point2f p1(lines[lineIdx][2], lines[lineIdx][3]);
+    cv::Point2f r = p1 - p0;
+    if (std::hypot(r.x, r.y) < 1e-3f)
+      return std::numeric_limits<float>::infinity();
+
+    float best = std::numeric_limits<float>::infinity();
+
+    for (size_t j = 0; j < lines.size(); ++j) {
+      if ((int)j == lineIdx)
+        continue;
+
+      cv::Point2f q0(lines[j][0], lines[j][1]);
+      cv::Point2f q1(lines[j][2], lines[j][3]);
+      cv::Point2f s = q1 - q0;
+      if (std::hypot(s.x, s.y) < 1e-3f)
+        continue;
+
+      float denom = cross2d(r, s);
+      if (std::abs(denom) < 1e-4f)
+        continue; // параллельные или слишком близко к этому
+
+      cv::Point2f qmp = q0 - p0;
+      float t = cross2d(qmp, s) / denom;
+      cv::Point2f inter = p0 + t * r;
+
+      float alongDir = (inter - epPoint).dot(epDir);
+      if (alongDir <= 0.0f)
+        continue; // пересечение позади роста
+
+      if (alongDir < best)
+        best = alongDir;
+    }
+
+    return best;
+  };
+
+  for (auto &[lineIdx, eps] : lineEndpoints) {
+    for (auto &info : eps)
+      info.maxDistanceAlong = endpointIntersectionDistance(lineIdx, info);
+  }
+
   // Активные концы: растём синхронно на 1 пиксель за итерацию
   struct ActiveEndpoint {
     cv::Point2f pos;
     cv::Point2f dir;
+    cv::Point2f start;
+    float maxDistance;
     int lineIdx;
   };
   std::vector<ActiveEndpoint> active;
@@ -99,11 +161,15 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
     auto it = lineEndpoints.find((int)i);
     if (it == lineEndpoints.end() || it->second.empty())
       continue;
-    for (const auto &ep : it->second) {
-      auto dirOpt = endpointDir(ep, lines[i]);
+    for (const auto &epInfo : it->second) {
+      auto dirOpt = endpointDir(epInfo.point, lines[i]);
       if (!dirOpt)
         continue;
-      active.push_back({cv::Point2f(ep), *dirOpt, static_cast<int>(i)});
+      active.push_back({cv::Point2f(epInfo.point),
+                        *dirOpt,
+                        cv::Point2f(epInfo.point),
+                        epInfo.maxDistanceAlong,
+                        static_cast<int>(i)});
     }
   }
 
@@ -115,6 +181,11 @@ cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap) {
     for (size_t idx = 0; idx < active.size(); ++idx) {
       auto &ae = active[idx];
       cv::Point2f next = ae.pos + ae.dir;
+      float nextAlong = (next - ae.start).dot(ae.dir);
+      if (nextAlong > ae.maxDistance + 1e-3f) {
+        toRemove.push_back(idx);
+        continue;
+      }
       int x = cvRound(next.x);
       int y = cvRound(next.y);
       if (x < 0 || y < 0 || x >= result.cols || y >= result.rows) {
