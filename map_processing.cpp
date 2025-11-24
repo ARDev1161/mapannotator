@@ -772,19 +772,18 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
 
     eraseWallsFromZones(srcBinary, allZones);
 
-    //     std::size_t n = attachPixelsToNearestZone(occ, allZones);
+    // std::size_t n = attachPixelsToNearestZone(occ, allZones);
     //     (void)n;
 
-    //     keepCentroidComponent(seedLabels.centroids, allZones, &occ);
-    //     int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
-    //     std::cout << "Добавлено участков: " << added << '\n';
+    // keepCentroidComponent(labels.centroids, allZones, &occ);
+    // int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
+    // std::cout << "Добавлено участков: " << added << '\n';
 
-    //     std::cerr << "[warn] maxIter reached, "
-    //               << todo.size() << " zones still not isolated: ";
+    std::cerr << "[warn] maxIter reached, " << todo.size() << " zones still not isolated: ";
 
-    //     for (auto zone : todo)
-    //         std::cerr << zone.first << zone.second << " ";
-    //     std::cerr << std::endl;
+    for (auto zone : todo)
+        std::cerr << zone.first << zone.second << " ";
+    std::cerr << std::endl;
   }
 
   labels = buildLabelsFromZones(allZones);

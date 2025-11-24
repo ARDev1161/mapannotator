@@ -6,8 +6,6 @@
 #include <opencv2/ximgproc.hpp>
 #include "yaml-cpp/yaml.h"
 
-// #define SHOW_DEBUG_IMAGES
-
 #include "mapgraph/zonegraph.hpp"
 #include "mapgraph/zone_graph_dot.hpp"
 #include "mapgraph/zone_graph_draw.hpp"
@@ -165,32 +163,25 @@ int main(int argc, char** argv)
     showMatDebug("Denoised Map", out);
 
     // Расширенние черных зон(препятствия)
+    // TODO: нужно ли это расширение стен?
     cv::Mat1b binaryDilated = erodeBinary(rank,
                                           segmenterConfig.dilateConfig.kernelSize,
                                           segmenterConfig.dilateConfig.iterations);
     rank.convertTo(out, CV_8U, 255);
     showMatDebug("Dilated Map", out);
 
-    // Получение маски стен
-    cv::Mat1b wallMask;
-    cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ); // 255 там, где стена
-
     // Настройка параметров сегментации
     SegmentationParams segParams;
-    segParams.legacyMaxIter = 50;
-    segParams.legacySigmaStep = 0.5;
-    segParams.legacyThreshold = 0.5;
-    segParams.useDownsampleSeeds = true;
-    segParams.downsampleConfig.maxIter = 60;
-    segParams.downsampleConfig.sigmaStart = 1.0;
-    segParams.downsampleConfig.sigmaStep = 0.4;
-    segParams.downsampleConfig.threshold = 0.55;
+    segParams.maxIter = 50;
+    segParams.sigmaStep = 0.5;
+    segParams.threshold = 0.5;
     segParams.seedClearancePx = seedClearancePx;
 
+    // Получение меток
+    LabelsInfo labels = LabelMapping::computeLabels(binaryDilated, /*invert=*/false);
+
     // Этап сегментации
-    LabelsInfo labels;
     auto zones = segmentByGaussianThreshold(binaryDilated, labels, segParams);
-    // TODO: сделать проверку если label рядом с препятствием на <= заданному расстоянию то удалить(половина размера робота)
 
     // Создание матрицы зон
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);

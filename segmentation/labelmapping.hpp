@@ -32,7 +32,9 @@ public:
     static cv::Mat remap(const cv::Mat& inputMap, const std::map<T, T>& remapDict);
 
     /** Compute label centroids and IDs from a dilated binary map. */
-    static LabelsInfo computeLabels(const cv::Mat1b& binaryDilated, int backgroundErosionKernelSize);
+    static LabelsInfo computeLabels(const cv::Mat1b &binaryDilated,
+                                    int backgroundErosionKernelSize,
+                                    double seedClearancePx = 0.0);
 
     static std::vector<ZoneMask>
     extractIsolatedZones(const cv::Mat1b& freeMap,
@@ -69,6 +71,14 @@ private:
     static LabelsInfo getSeeds(const cv::Mat& binInput,
                                  int dilateIterations = 1,
                                  int dilateKernelSize = 3);
+
+    static bool obstacleWithinRadius(const cv::Mat1b &binaryMap,
+                                     const cv::Point &centroid,
+                                     int radiusPx);
+
+    static void filterSeedCentroids(LabelsInfo &labels,
+                                    const cv::Mat1b &binaryMap,
+                                    double minDistancePx);
     /**
      * @brief  Детектировать углы Harris и добавить окружности в тот же wallMask.
      *

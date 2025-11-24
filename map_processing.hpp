@@ -6,39 +6,38 @@
 #include <unordered_map>
 
 #include "mapgraph/zonegraph.hpp"
-#include "segmentation/segmentation.hpp"
 #include "segmentation/labelmapping.hpp"
-#include "segmentation/downsample_seeding.hpp"
+#include "segmentation/segmentation.hpp"
+
+/**
+ * @brief Найти прямые стены и продлить их до ближайшей стены или границы карты.
+ * @param wallFreeMap Бинарная карта (0 = стена, 255 = свободно).
+ * @return Копия карты с дорисованными продолжениями стен (0 там, где стена).
+ */
+cv::Mat1b extendWallsUntilHit(const cv::Mat1b &wallFreeMap);
 
 /**
  * @brief Tunables for the Gaussian threshold segmentation pipeline.
  */
-struct SegmentationParams {
-    /** Maximum number of iterations for the legacy Gaussian loop. */
-    int legacyMaxIter = 40;
-    /** Sigma increment for each legacy iteration. */
-    double legacySigmaStep = 0.25;
-    /** Threshold used after Gaussian blur (0..1 scale). */
-    double legacyThreshold = 0.5;
-
+struct SegmentationParams
+{
+    int maxIter = 40;             ///< Maximum number of iterations for the Gaussian loop.
+    double sigmaStep = 0.25;      ///< Sigma increment for each iteration.
+    double threshold = 0.5;       ///< Threshold used after Gaussian blur (0..1 scale).
     double seedClearancePx = 0.0; ///< minimal distance from seeds to obstacles (pixels)
-
-    bool useDownsampleSeeds = true; ///< prefer downsampled seeds over legacy loop
-    DownsampleSeedsConfig downsampleConfig;
 };
 
 /**
  * @brief Segment free space into zones using Gaussian thresholding or downsampled seeds.
  *
  * @param srcBinary  Binary free-space map (0=wall, 1=free).
- * @param labelsOut  Output centroid map describing seed labels and positions.
+ * @param labels     Centroid map describing seed labels and positions.
  * @param params     Segmentation parameters.
  * @return           Vector of ZoneMask objects describing each segmented zone.
  */
-std::vector<ZoneMask>
-segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
-                           LabelsInfo &labelsOut,
-                           const SegmentationParams &params);
+std::vector<ZoneMask> segmentByGaussianThreshold(const cv::Mat1b &srcBinary,
+                                                 LabelsInfo &labels,
+                                                 const SegmentationParams &params);
 
 /**
  * @brief Build a ZoneGraph from segmented zones and their label raster.
