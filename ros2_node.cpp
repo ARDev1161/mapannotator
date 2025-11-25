@@ -73,7 +73,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
-    cv::Mat baseImage = aligned.empty() ? raw : aligned.clone();
+    cv::Mat baseImage = aligned.empty() ? cv::Mat(raw.clone()) : aligned.clone();
     if (baseImage.channels() > 1)
         cv::cvtColor(baseImage, baseImage, cv::COLOR_BGR2GRAY);
     cv::Mat vis = renderZonesOverlay(zones, baseImage, crop, 0.65);
@@ -111,18 +111,9 @@ public:
         config_.alignmentConfig.enable =
             this->declare_parameter("alignment.enable", true);
 
-        seg_params_.legacyMaxIter = this->declare_parameter("segmentation.max_iter", 50);
-        seg_params_.legacySigmaStep = this->declare_parameter("segmentation.sigma_step", 0.5);
-        seg_params_.legacyThreshold = this->declare_parameter("segmentation.threshold", 0.5);
-        seg_params_.downsampleConfig.maxIter = seg_params_.legacyMaxIter;
-        seg_params_.downsampleConfig.sigmaStep = seg_params_.legacySigmaStep;
-        seg_params_.downsampleConfig.threshold = seg_params_.legacyThreshold;
-        seg_params_.downsampleConfig.sigmaStart =
-            this->declare_parameter("segmentation.downsample_sigma_start", 1.0);
-        seg_params_.downsampleConfig.backgroundKernel =
-            this->declare_parameter("segmentation.background_kernel", 5);
-        seg_params_.useDownsampleSeeds =
-            this->declare_parameter("segmentation.use_downsample_seeds", true);
+        seg_params_.maxIter = this->declare_parameter("segmentation.max_iter", 50);
+        seg_params_.sigmaStep = this->declare_parameter("segmentation.sigma_step", 0.5);
+        seg_params_.threshold = this->declare_parameter("segmentation.threshold", 0.5);
         seg_params_.seedClearancePx =
             this->declare_parameter("segmentation.seed_clearance_px", 0.0);
         seed_clearance_m_ =
