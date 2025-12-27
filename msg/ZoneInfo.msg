@@ -1,0 +1,10 @@
+uint32 id
+uint32 type_id
+string name
+string type
+uint8 r
+uint8 g
+uint8 b
+geometry_msgs/Point centroid
+geometry_msgs/Point[] chain_code
+mapannotator/ZonePassage[] passages

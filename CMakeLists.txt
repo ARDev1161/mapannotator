@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(mapannotator LANGUAGES CXX)
+project(mapannotator LANGUAGES C CXX)
 
 option(MAPANNOTATOR_BUILD_ROS2 "Build ROS 2 node ${PROJECT_NAME}_ros2" ON)
 
@@ -40,7 +40,7 @@ set(PDDL_SRC
     pddl/pddlgenerator.h pddl/pddlgenerator.cpp
 )
 
-add_executable(${PROJECT_NAME} main.cpp
+add_executable(${PROJECT_NAME}_cli main.cpp
                                ${ZONEGRAPH_SRC}
                                ${PREPARING_SRC}
                                ${SEGMENTATION_SRC}
@@ -48,7 +48,8 @@ add_executable(${PROJECT_NAME} main.cpp
                                map_processing.cpp
                                utils.hpp config.hpp)
 
-target_link_libraries(${PROJECT_NAME} PUBLIC ${OpenCV_LIBS} yaml-cpp)
+set_target_properties(${PROJECT_NAME}_cli PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
+target_link_libraries(${PROJECT_NAME}_cli PUBLIC ${OpenCV_LIBS} yaml-cpp)
 
 if(MAPANNOTATOR_BUILD_ROS2)
     add_executable(${PROJECT_NAME}_ros2 ros2_node.cpp
@@ -73,5 +74,8 @@ if(MAPANNOTATOR_BUILD_ROS2)
     ament_package()
 endif()
 
-install(TARGETS ${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME}_cli
         RUNTIME DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY config
+        DESTINATION share/${PROJECT_NAME})

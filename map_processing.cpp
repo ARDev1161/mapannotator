@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <opencv2/ximgproc.hpp>
 #include <optional>
+#include <string>
 #include <unordered_set>
 
 #include "mapgraph/zone_graph_dot.hpp"
@@ -373,12 +375,33 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
 
   auto locateRules = []() -> std::string {
     namespace fs = std::filesystem;
+    if (const char *env = std::getenv("MAPANNOTATOR_RULES_PATH")) {
+      fs::path env_path(env);
+      if (fs::exists(env_path))
+        return env_path.string();
+    }
     const std::vector<fs::path> candidates = {
         fs::path("config") / "rules.yaml", fs::path("../config") / "rules.yaml",
         fs::path("share") / "mapannotator" / "config" / "rules.yaml"};
     for (const auto &p : candidates) {
       if (fs::exists(p))
         return p.string();
+    }
+    if (const char *ament_prefix = std::getenv("AMENT_PREFIX_PATH")) {
+      std::string prefixes(ament_prefix);
+      size_t start = 0;
+      while (start <= prefixes.size()) {
+        size_t end = prefixes.find(':', start);
+        std::string prefix = prefixes.substr(start, end - start);
+        if (!prefix.empty()) {
+          fs::path candidate = fs::path(prefix) / "share" / "mapannotator" / "config" / "rules.yaml";
+          if (fs::exists(candidate))
+            return candidate.string();
+        }
+        if (end == std::string::npos)
+          break;
+        start = end + 1;
+      }
     }
     return (fs::path("config") / "rules.yaml").string();
   };

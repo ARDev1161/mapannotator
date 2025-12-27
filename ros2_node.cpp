@@ -3,7 +3,14 @@
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <cmath>
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cctype>
+#include <iomanip>
 #include <sstream>
+#include <unordered_map>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include "utils.hpp"
 #include "visualization.hpp"
@@ -12,6 +19,7 @@
 #include "segmentation/segmentation.hpp"
 #include "segmentation/labelmapping.hpp"
 #include "mapgraph/zonegraph.hpp"
+#include "mapgraph/typeregistry.h"
 #include "pddl/pddlgenerator.h"
 #include "map_processing.hpp"
 
@@ -20,15 +28,178 @@ using namespace std::placeholders;
 using mapping::ZoneGraph;
 using mapping::NodePtr;
 
+struct AgentZoneInfo
+{
+    std::uint32_t id{0};
+    std::uint32_t type_id{0};
+    std::string name;
+    std::string type;
+    cv::Point2d centroid;
+    std::array<std::uint8_t, 3> color{{0, 0, 0}}; // RGB
+    std::vector<cv::Point2d> chain_code;
+};
 
+static int normalizeChainMethod(int method)
+{
+    switch (method) {
+        case cv::CHAIN_APPROX_NONE:
+        case cv::CHAIN_APPROX_SIMPLE:
+        case cv::CHAIN_APPROX_TC89_L1:
+        case cv::CHAIN_APPROX_TC89_KCOS:
+            return method;
+        default:
+            return cv::CHAIN_APPROX_SIMPLE;
+    }
+}
 
+static int parseChainMethod(const std::string &method, rclcpp::Logger logger)
+{
+    std::string lowered = method;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lowered == "none")
+        return cv::CHAIN_APPROX_NONE;
+    if (lowered == "simple")
+        return cv::CHAIN_APPROX_SIMPLE;
+    if (lowered == "tc89_l1")
+        return cv::CHAIN_APPROX_TC89_L1;
+    if (lowered == "tc89_kcos")
+        return cv::CHAIN_APPROX_TC89_KCOS;
+    RCLCPP_WARN(logger, "Unknown zones.chain_approx_method '%s', falling back to 'simple'",
+                method.c_str());
+    return cv::CHAIN_APPROX_SIMPLE;
+}
+
+static std::vector<cv::Point> extractLargestContour(const cv::Mat1b &mask, int chain_method)
+{
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(mask, contours, cv::RETR_EXTERNAL, normalizeChainMethod(chain_method));
+    if (contours.empty())
+        return {};
+
+    double max_area = 0.0;
+    int max_idx = -1;
+    for (int i = 0; i < static_cast<int>(contours.size()); ++i) {
+        double area = std::fabs(cv::contourArea(contours[i]));
+        if (area > max_area) {
+            max_area = area;
+            max_idx = i;
+        }
+    }
+    if (max_idx < 0)
+        return {};
+    return contours[static_cast<std::size_t>(max_idx)];
+}
+
+static std::vector<cv::Point2d> contourToWorldPoints(const std::vector<cv::Point> &contour)
+{
+    std::vector<cv::Point2d> out;
+    if (contour.empty())
+        return out;
+
+    out.reserve(contour.size() + 1);
+    for (const auto &pt : contour)
+        out.push_back(pixelToWorld(pt, mapInfo));
+    out.push_back(pixelToWorld(contour.front(), mapInfo)); // close contour
+    return out;
+}
+
+static std::string escapeJson(const std::string &src)
+{
+    std::string out;
+    out.reserve(src.size());
+    for (char c : src) {
+        if (c == '\\' || c == '"')
+            out.push_back('\\');
+        out.push_back(c);
+    }
+    return out;
+}
+
+static std::string serializeAgentZones(const std::vector<AgentZoneInfo> &zones)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(3);
+    oss << "{\"zones\":[";
+    for (std::size_t i = 0; i < zones.size(); ++i) {
+        const auto &z = zones[i];
+        oss << "{"
+            << "\"id\":" << z.id << ','
+            << "\"type_id\":" << z.type_id << ','
+            << "\"name\":\"" << escapeJson(z.name) << "\","
+            << "\"type\":\"" << escapeJson(z.type) << "\","
+            << "\"color\":{"
+            << "\"r\":" << static_cast<int>(z.color[0]) << ','
+            << "\"g\":" << static_cast<int>(z.color[1]) << ','
+            << "\"b\":" << static_cast<int>(z.color[2]) << "},"
+            << "\"centroid\":{\"x\":" << z.centroid.x << ",\"y\":" << z.centroid.y << "},"
+            << "\"chain_code\":[";
+        for (std::size_t j = 0; j < z.chain_code.size(); ++j) {
+            const auto &pt = z.chain_code[j];
+            oss << "{\"x\":" << pt.x << ",\"y\":" << pt.y << "}";
+            if (j + 1 < z.chain_code.size())
+                oss << ",";
+        }
+        oss << "],\"passages\":[]}";
+        if (i + 1 < zones.size())
+            oss << ",";
+    }
+    oss << "]}";
+    return oss.str();
+}
+static std::vector<AgentZoneInfo> buildAgentZones(const std::vector<ZoneMask> &zones,
+                                                  const mapping::ZoneGraph &graph,
+                                                  const PDDLGenerator &gen,
+                                                  int chain_method,
+                                                  double color_scale)
+{
+    std::unordered_map<int, AgentZoneInfo> by_id;
+    const double scale = std::clamp(color_scale, 0.1, 1.0);
+
+    for (const auto &z : zones) {
+        auto contour = extractLargestContour(z.mask, chain_method);
+        AgentZoneInfo info;
+        info.id = z.label;
+        if (!contour.empty())
+            info.chain_code = contourToWorldPoints(contour);
+        by_id[info.id] = std::move(info);
+    }
+
+    for (const auto &node : graph.allNodes()) {
+        const int id = static_cast<int>(node->id());
+        auto &info = by_id[id]; // creates if missing
+        info.id = static_cast<std::uint32_t>(id);
+        info.type_id = static_cast<std::uint32_t>(node->type().id());
+        info.name = gen.zoneLabel(node);
+        info.type = node->type().path();
+        info.centroid = node->centroid();
+        cv::Scalar bgr = zoneColor(node->type());
+        auto scale_channel = [scale](double v) {
+            int scaled = static_cast<int>(std::round(v * scale));
+            return static_cast<std::uint8_t>(std::clamp<int>(scaled, 0, 255));
+        };
+        info.color = {scale_channel(bgr[2]),
+                      scale_channel(bgr[1]),
+                      scale_channel(bgr[0])};
+    }
+
+    std::vector<AgentZoneInfo> out;
+    out.reserve(by_id.size());
+    for (auto &kv : by_id)
+        out.push_back(std::move(kv.second));
+    std::sort(out.begin(), out.end(), [](const auto &a, const auto &b) { return a.id < b.id; });
+    return out;
+}
 
 static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                        const SegmenterConfig &cfg,
                                        const SegmentationParams &seg_params,
                                        const std::string &start_zone,
                                        const std::string &goal_zone,
-                                       cv::Mat *vis_out = nullptr)
+                                       cv::Mat *vis_out = nullptr,
+                                       std::vector<AgentZoneInfo> *agent_zones_out = nullptr,
+                                       int chain_method = cv::CHAIN_APPROX_SIMPLE,
+                                       double color_scale = 1.0)
 {
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
@@ -63,7 +234,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     cv::Mat1b binaryDilated = erodeBinary(rank, cfg.dilateConfig.kernelSize,
                                           cfg.dilateConfig.iterations);
 
-    LabelsInfo labels;
+    LabelsInfo labels = LabelMapping::computeLabels(binaryDilated, 0, seg_params.seedClearancePx);
     auto zones = segmentByGaussianThreshold(binaryDilated, labels, seg_params);
 
     cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
@@ -83,6 +254,11 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     }
 
     PDDLGenerator gen(graph);
+
+    if (agent_zones_out) {
+        *agent_zones_out = buildAgentZones(zones, graph, gen, chain_method, color_scale);
+    }
+
     std::ostringstream oss;
     oss << "(define (problem map_problem)\n"
         << "  (:domain map_domain)\n"
@@ -101,6 +277,7 @@ public:
         map_topic_  = this->declare_parameter("map_topic", std::string("/map"));
         pddl_topic_ = this->declare_parameter("pddl_topic", std::string("/pddl/map"));
         segmentation_topic_ = this->declare_parameter("segmentation_topic", std::string("/mapannotator/segmentation"));
+        rc_agent_topic_ = this->declare_parameter("rc_agent_topic", std::string("/mapannotator/rc_agent_zones"));
 
         config_.denoiseConfig.rankBinaryThreshold =
             this->declare_parameter("denoise.rank_binary_threshold", 0.2);
@@ -116,6 +293,12 @@ public:
         seg_params_.threshold = this->declare_parameter("segmentation.threshold", 0.5);
         seg_params_.seedClearancePx =
             this->declare_parameter("segmentation.seed_clearance_px", 0.0);
+        chain_approx_method_ =
+            parseChainMethod(this->declare_parameter("zones.chain_approx_method",
+                                                     std::string("simple")),
+                             this->get_logger());
+        zones_color_scale_ =
+            this->declare_parameter("zones.color_scale", 0.6);
         seed_clearance_m_ =
             this->declare_parameter("segmentation.seed_clearance_m", 0.0);
 
@@ -126,6 +309,7 @@ public:
             map_topic_, 10, std::bind(&MapAnnotatorNode::mapCallback, this, _1));
         pddl_pub_ = this->create_publisher<std_msgs::msg::String>(pddl_topic_, 10);
         segmentation_pub_ = this->create_publisher<sensor_msgs::msg::Image>(segmentation_topic_, 10);
+        rc_agent_pub_ = this->create_publisher<std_msgs::msg::String>(rc_agent_topic_, 10);
     }
 
 private:
@@ -157,9 +341,13 @@ private:
             seg_params_.seedClearancePx = seed_clearance_m_ / mapInfo.resolution;
 
         cv::Mat vis;
+        std::vector<AgentZoneInfo> agent_zones;
         std::string pddl = generatePddlFromMap(map, config_,
                                               seg_params_,
-                                              start_zone_, goal_zone_, &vis);
+                                              start_zone_, goal_zone_, &vis,
+                                              &agent_zones,
+                                              chain_approx_method_,
+                                              zones_color_scale_);
 
         if(!isHeadlessMode())
         {
@@ -181,19 +369,34 @@ private:
         img_msg.step = static_cast<sensor_msgs::msg::Image::_step_type>(vis.step);
         img_msg.data.assign(vis.datastart, vis.dataend);
         segmentation_pub_->publish(img_msg);
+
+        publishRcAgentZones(agent_zones);
+    }
+
+    void publishRcAgentZones(const std::vector<AgentZoneInfo> &zones)
+    {
+        if (!rc_agent_pub_ || zones.empty())
+            return;
+        std_msgs::msg::String packed;
+        packed.data = serializeAgentZones(zones);
+        rc_agent_pub_->publish(packed);
     }
 
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pddl_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr segmentation_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr rc_agent_pub_;
     std::string map_topic_;
     std::string pddl_topic_;
     std::string segmentation_topic_;
+    std::string rc_agent_topic_;
     SegmenterConfig config_;
     SegmentationParams seg_params_;
     std::string start_zone_;
     std::string goal_zone_;
+    double zones_color_scale_{0.6};
     double seed_clearance_m_{0.0};
+    int chain_approx_method_{cv::CHAIN_APPROX_SIMPLE};
 };
 
 int main(int argc, char **argv)

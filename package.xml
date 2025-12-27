@@ -14,6 +14,7 @@
   <depend>rclcpp</depend>
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
 
   <!-- system/third-party libs -->
   <build_depend>opencv4</build_depend>
@@ -25,4 +26,3 @@
     <build_type>ament_cmake</build_type>
   </export>
 </package>
-
