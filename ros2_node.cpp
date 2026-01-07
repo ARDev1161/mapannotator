@@ -147,14 +147,21 @@ static std::string serializeAgentZones(const std::vector<AgentZoneInfo> &zones)
     oss << "]}";
     return oss.str();
 }
+
+static cv::Vec3b labelColor(int label)
+{
+    cv::RNG rng(static_cast<uint64_t>(label) * 9781u + 13579u);
+    return cv::Vec3b(rng.uniform(60, 255),
+                     rng.uniform(60, 255),
+                     rng.uniform(60, 255));
+}
+
 static std::vector<AgentZoneInfo> buildAgentZones(const std::vector<ZoneMask> &zones,
                                                   const mapping::ZoneGraph &graph,
                                                   const PDDLGenerator &gen,
-                                                  int chain_method,
-                                                  double color_scale)
+                                                  int chain_method)
 {
     std::unordered_map<int, AgentZoneInfo> by_id;
-    const double scale = std::clamp(color_scale, 0.1, 1.0);
 
     for (const auto &z : zones) {
         auto contour = extractLargestContour(z.mask, chain_method);
@@ -162,6 +169,8 @@ static std::vector<AgentZoneInfo> buildAgentZones(const std::vector<ZoneMask> &z
         info.id = z.label;
         if (!contour.empty())
             info.chain_code = contourToWorldPoints(contour);
+        cv::Vec3b bgr = labelColor(z.label);
+        info.color = {bgr[2], bgr[1], bgr[0]};
         by_id[info.id] = std::move(info);
     }
 
@@ -173,14 +182,8 @@ static std::vector<AgentZoneInfo> buildAgentZones(const std::vector<ZoneMask> &z
         info.name = gen.zoneLabel(node);
         info.type = node->type().path();
         info.centroid = node->centroid();
-        cv::Scalar bgr = zoneColor(node->type());
-        auto scale_channel = [scale](double v) {
-            int scaled = static_cast<int>(std::round(v * scale));
-            return static_cast<std::uint8_t>(std::clamp<int>(scaled, 0, 255));
-        };
-        info.color = {scale_channel(bgr[2]),
-                      scale_channel(bgr[1]),
-                      scale_channel(bgr[0])};
+        cv::Vec3b bgr = labelColor(id);
+        info.color = {bgr[2], bgr[1], bgr[0]};
     }
 
     std::vector<AgentZoneInfo> out;
@@ -198,8 +201,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
                                        const std::string &goal_zone,
                                        cv::Mat *vis_out = nullptr,
                                        std::vector<AgentZoneInfo> *agent_zones_out = nullptr,
-                                       int chain_method = cv::CHAIN_APPROX_SIMPLE,
-                                       double color_scale = 1.0)
+                                       int chain_method = cv::CHAIN_APPROX_SIMPLE)
 {
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
@@ -256,7 +258,7 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     PDDLGenerator gen(graph);
 
     if (agent_zones_out) {
-        *agent_zones_out = buildAgentZones(zones, graph, gen, chain_method, color_scale);
+        *agent_zones_out = buildAgentZones(zones, graph, gen, chain_method);
     }
 
     std::ostringstream oss;
@@ -297,8 +299,6 @@ public:
             parseChainMethod(this->declare_parameter("zones.chain_approx_method",
                                                      std::string("simple")),
                              this->get_logger());
-        zones_color_scale_ =
-            this->declare_parameter("zones.color_scale", 0.6);
         seed_clearance_m_ =
             this->declare_parameter("segmentation.seed_clearance_m", 0.0);
 
@@ -346,8 +346,7 @@ private:
                                               seg_params_,
                                               start_zone_, goal_zone_, &vis,
                                               &agent_zones,
-                                              chain_approx_method_,
-                                              zones_color_scale_);
+                                              chain_approx_method_);
 
         if(!isHeadlessMode())
         {
@@ -394,7 +393,6 @@ private:
     SegmentationParams seg_params_;
     std::string start_zone_;
     std::string goal_zone_;
-    double zones_color_scale_{0.6};
     double seed_clearance_m_{0.0};
     int chain_approx_method_{cv::CHAIN_APPROX_SIMPLE};
 };
