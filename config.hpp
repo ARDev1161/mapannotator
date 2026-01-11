@@ -40,8 +40,8 @@
     struct DenoiseConfig {
         double binaryForCropThreshold = 0.2; ///< threshold for cropping mask
         double binaryThreshold = 0.2;        ///< threshold for noise removal
-        int compOutMinSize = 40;             ///< minimal size of outer components
-        int compInMinSize = 40;              ///< minimal size of inner components
+        double compOutMinAreaM2 = 1.0;       ///< minimal size of outer components (m^2)
+        double compInMinAreaM2 = 1.0;        ///< minimal size of inner components (m^2)
         double rankBinaryThreshold = 0.9;    ///< final binarisation threshold
     };
 

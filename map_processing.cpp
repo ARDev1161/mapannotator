@@ -326,7 +326,7 @@ static void annotateGraph(ZoneGraph &graph, const std::string &rulefile) {
     ZoneType t = clf.classify(f);
 
     node->setType(t);
-    std::cerr << "Zone #" << node->id() << " → " << t.path() << '\n';
+    // std::cerr << "Zone #" << node->id() << " → " << t.path() << '\n';
   }
 }
 
@@ -364,13 +364,13 @@ void buildGraph(ZoneGraph &graphOut, std::vector<ZoneMask> zones,
         computeWhiteArea(zoneIndex[centroid.first], kAreaPerPixel), 10);
 
     // строим рёбра
-    std::cerr << "Zone " << std::to_string(centroid.first) << centroid.second
-              << " neighbours:";
+    // std::cerr << "Zone " << std::to_string(centroid.first) << centroid.second
+              // << " neighbours:";
     for (auto neighbour : zoneGraph[centroid.first]) {
-      std::cerr << ' ' << neighbour;
+      // std::cerr << ' ' << neighbour;
       graphOut.connectZones(centroid.first, neighbour, W(1.4));
     }
-    std::cerr << '\n';
+    // std::cerr << '\n';
   }
 
   auto locateRules = []() -> std::string {
@@ -531,8 +531,8 @@ keepCentroidComponent(const std::unordered_map<int, cv::Point> &centroids,
   for (auto &z : allZones) {
     auto it = centroids.find(z.label);
     if (it == centroids.end()) {
-      std::cerr << "[keepCentroidComponent] no centroid for label " << z.label
-                << '\n';
+      // std::cerr << "[keepCentroidComponent] no centroid for label " << z.label
+                // << '\n';
       continue;
     }
 
@@ -542,16 +542,16 @@ keepCentroidComponent(const std::unordered_map<int, cv::Point> &centroids,
     CV_Assert(!m.empty() && m.type() == CV_8UC1);
 
     if (c.x < 0 || c.x >= m.cols || c.y < 0 || c.y >= m.rows) {
-      std::cerr << "[keepCentroidComponent] centroid outside image for label "
-                << z.label << '\n';
+      // std::cerr << "[keepCentroidComponent] centroid outside image for label "
+                // << z.label << '\n';
       continue;
     }
 
     cv::threshold(m, m, 0, 255, cv::THRESH_BINARY);
 
     if (m.at<uchar>(c) == 0) {
-      std::cerr << "[keepCentroidComponent] centroid not inside mask for label "
-                << z.label << '\n';
+      // std::cerr << "[keepCentroidComponent] centroid not inside mask for label "
+                // << z.label << '\n';
       continue;
     }
 
@@ -705,7 +705,7 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
 
   cv::Mat1b eroded = srcBinary.clone();
 
-  const int stallLimit = 5;
+  const int stallLimit = 42;
   int prevTodoSize = static_cast<int>(todo.size());
   int stallIters = 0;
 
@@ -717,24 +717,28 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
   for (int iter = 0; iter < params.maxIter && !todo.empty(); ++iter) {
     double sigma = (iter + 1) * params.sigmaStep;
 
+    // 1) Wall expansion stage with thresholding after Gaussian blurring
+
     // Erode obstacles a bit to avoid leaking through narrow gaps,
     // blur the binary map, then threshold to obtain a softened free-space mask.
     cv::erode(eroded, eroded, kernel, cv::Point(-1, -1), 1);
-
     cv::GaussianBlur(eroded, blurred, cv::Size(0, 0), sigma, sigma,
                      cv::BORDER_REPLICATE);
-
     cv::threshold(blurred, bin, params.threshold, 1, cv::THRESH_BINARY);
 
+    // TODO: maybe add downsample for optimization?
+
+    // 2) Convert to 8U
     cv::Mat1b seg8u;
     bin.convertTo(seg8u, CV_8U, 255);
 
+    // 3) Checking if label located in a wall
     if (cv::countNonZero(bin) == 0) {
-      std::cerr << "[warn] free space vanished at iter " << iter << '\n';
-      break;
+        std::cerr << "[warn] free space vanished at iter " << iter << '\n';
+        break;
     }
 
-    // Extract zones containing the outstanding centroids;
+    // 4) Extract zones containing the outstanding centroids;
     // dilate them back to compensate for the prior erosion/blur.
     auto zones =
         LabelMapping::extractIsolatedZones(bin, todo, /*invertFree=*/true);
@@ -754,10 +758,9 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
     prevTodoSize = curTodo;
 
     if (stallIters >= stallLimit) {
-      std::cerr << "[warn] segmentation stalled for " << stallIters
-                << " iterations, breaking early with " << curTodo
-                << " zones pending\n";
-      break;
+        std::cerr << "[warn] segmentation stalled for " << stallIters
+                  << " iterations, breaking early with " << curTodo << " zones pending\n";
+        break;
     }
   }
 
@@ -771,14 +774,8 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
       // Добавляем продлённые стены в маску занятых
       cv::bitwise_or(occ, extended, occ);
 
-      occ.convertTo(out, CV_8U, 255);
-      showMat("Extended", out);
-
       for (auto it = todo.begin(); it != todo.end();) {
           if (occ(it->second) == 0) {
-              std::cerr << "Not segmented (no zone under label): " << it->first << it->second
-                        << '\n';
-
               ZoneMask z;
               z.label = it->first;
               z.mask = buildFloodMask(occ, it->second);
@@ -793,22 +790,40 @@ segmentByGaussianThreshold(const cv::Mat1b &srcBinary, LabelsInfo &labels,
               ++it;
       }
 
-    eraseWallsFromZones(srcBinary, allZones);
+      cv::Mat1b freeMask;
+      cv::compare(srcBinary, 0, freeMask, cv::CMP_NE);
+      cv::Mat1b addedWalls;
+      cv::bitwise_and(extended, freeMask, addedWalls);
+      occ.setTo(0, addedWalls);
 
-    // std::size_t n = attachPixelsToNearestZone(occ, allZones);
-    //     (void)n;
+      eraseWallsFromZones(srcBinary, allZones);
 
-    // keepCentroidComponent(labels.centroids, allZones, &occ);
-    // int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
-    // std::cout << "Добавлено участков: " << added << '\n';
+      keepCentroidComponent(labels.centroids, allZones, &occ);
+      int added = mergeLonelyFreeAreas(occ, srcBinary, allZones);
+      if (added > 0)
+          std::cout << "Добавлено участков: " << added << '\n';
 
-    std::cerr << "[warn] maxIter reached, " << todo.size() << " zones still not isolated: ";
+      // оставшиеся огрызки областей после роста прицепляем к ближайшей
+      std::size_t n = attachPixelsToNearestZone(occ, allZones);
+      (void) n;
 
-    for (auto zone : todo)
-        std::cerr << zone.first << zone.second << " ";
-    std::cerr << std::endl;
+      // Removing label if it already has zone
+      for (auto it = todo.begin(); it != todo.end();) {
+          if (occ(it->second) != 0)
+              it = todo.erase(it);
+          else
+              ++it;
+      }
+
+      if (!todo.empty())
+          std::cerr << "[warn] maxIter reached, " << todo.size() << " zones still not isolated: ";
+
+      for (auto zone : todo)
+          std::cerr << zone.first << zone.second << " ";
+      std::cerr << std::endl;
+
+      // TODO: результирующий центроид брать максимальный существующий и максимально близкий к приближенному
   }
-
   labels = buildLabelsFromZones(allZones);
   return allZones;
 }

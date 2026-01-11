@@ -17,9 +17,9 @@
   <depend>sensor_msgs</depend>
 
   <!-- system/third-party libs -->
-  <build_depend>opencv4</build_depend>
+  <build_depend>libopencv-dev</build_depend>
   <build_depend>yaml-cpp</build_depend>
-  <exec_depend>opencv4</exec_depend>
+  <exec_depend>libopencv-dev</exec_depend>
   <exec_depend>yaml-cpp</exec_depend>
 
   <export>

@@ -363,7 +363,8 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
 // Реализация генерации денойзенной карты.
 // Здесь вызываются функции из Segmentation для бинаризации, кадрирования, инверсии и удаления шумовых компонентов.
 std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlone(const cv::Mat& raw,
-    const DenoiseConfig& config) {
+    const DenoiseConfig& config,
+    double mapResolution) {
 
     // Устраняем серые (неизвестные) зоны перед дальнейшей обработкой
     cv::Mat preprocessed = unknownRegionsDissolution(raw);
@@ -372,7 +373,7 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
     showMatDebug("unknownRegionsDissolution", out);
 
     // Создаем бинарную карту и вычисляем обрезку по наибольшему контуру.
-    cv::Mat binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
+    cv::Mat1b binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
     cv::Mat binaryForCrop8u;
     binaryForCrop.convertTo(binaryForCrop8u, CV_8U);
 
@@ -415,12 +416,22 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
 
     // Инвертируем изображение.
     rank = makeInvert(rank);
+    auto toPixels = [mapResolution](double areaM2) {
+        if (areaM2 <= 0.0 || mapResolution <= 0.0)
+            return 0;
+        double pixelArea = mapResolution * mapResolution;
+        int px = static_cast<int>(std::ceil(areaM2 / pixelArea));
+        return std::max(px, 1);
+    };
+    int compOutMinSizePx = toPixels(config.compOutMinAreaM2);
+    int compInMinSizePx = toPixels(config.compInMinAreaM2);
+
     // Удаляем маленькие компоненты (снаружи).
-    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", config.compOutMinSize, 4, false);
+    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", compOutMinSizePx, 4, false);
     // Инвертируем снова.
     rank = makeInvert(rank);
     // Удаляем маленькие компоненты (внутри).
-    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", config.compInMinSize, 4, false);
+    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", compInMinSizePx, 4, false);
 
     // Финальная бинаризация.
     rank = makeBinary(rank, config.rankBinaryThreshold);

@@ -84,11 +84,14 @@ public:
     /**
      * @brief Generate a denoised map and cropping info using Segmentation helpers.
      *
-     * @param raw      Input grayscale map (8U/32F).
-     * @param config   Denoising parameters.
-     * @return         Pair of denoised binary map and cropping offsets.
+     * @param raw            Input grayscale map (8U/32F).
+     * @param config         Denoising parameters.
+     * @param mapResolution  Map resolution (meters per pixel) for area thresholds.
+     * @return               Pair of denoised binary map and cropping offsets.
      */
-    static std::pair<cv::Mat, Segmentation::CropInfo> generateDenoisedAlone(const cv::Mat& raw, const DenoiseConfig& config);
+    static std::pair<cv::Mat, Segmentation::CropInfo> generateDenoisedAlone(const cv::Mat& raw,
+                                                                            const DenoiseConfig& config,
+                                                                            double mapResolution = 0.0);
 
     /**
      * Resolve unknown (grey) regions by snapping each pixel to the nearest
@@ -102,6 +105,15 @@ public:
      * Remove grey regions that are not connected with black pixels.
      */
     static cv::Mat removeGrayIslands(const cv::Mat& src, int connectivity = 8);
+
+    /**
+     * Remove small obstacle components from a binary map.
+     *
+     * @param src            Binary map (obstacles are black by default).
+     * @param maxDiameterPx  Remove components with area <= area of this diameter.
+     * @param isInverted     If true, obstacles are white and free space is black.
+     */
+    static cv::Mat removeSmallBlackObjects(const cv::Mat& src, double maxDiameterPx, bool isInverted = false);
 
     /**
      * @brief Align map and return applied rotation.

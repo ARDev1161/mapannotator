@@ -118,7 +118,8 @@ static cv::Mat makeInvert(const cv::Mat& src) {
 }
 
 /// Threshold image to binary.
-static cv::Mat makeBinary(const cv::Mat& src, double threshold, double maxValue = 1.0) {
+static cv::Mat1b makeBinary(const cv::Mat &src, double threshold, double maxValue = 1.0)
+{
     cv::Mat binary;
     cv::threshold(src, binary, threshold, maxValue, cv::THRESH_BINARY);
     return binary;

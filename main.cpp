@@ -69,7 +69,7 @@ int main(int argc, char** argv)
     std::string mapYamlFile = pgmFile.substr(0, pgmFile.find_last_of('.')) + ".yaml";
     bool mapYamlLoaded = false;
     std::vector<double> map_origin; // ожидается вектор из 3 элементов: [x, y, theta]
-    double resolution = 1.0;         // значение по умолчанию (метров на пиксель)
+    double resolution = 0.1;         // значение по умолчанию (метров на пиксель)
 
     if (std::filesystem::exists(mapYamlFile)) {
         try {
@@ -143,7 +143,9 @@ int main(int argc, char** argv)
 
     // Этап денойзинга
     cv::Mat out;
-    auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned, segmenterConfig.denoiseConfig);
+    auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned,
+                                                                    segmenterConfig.denoiseConfig,
+                                                                    mapInfo.resolution);
     {
         // Crop shifts the origin by removed left/bottom margins; apply to mapInfo.
         int newWidth  = aligned.cols - cropInfo.left - cropInfo.right;
@@ -162,14 +164,6 @@ int main(int argc, char** argv)
     rank.convertTo(out, CV_8U, 255);
     showMatDebug("Denoised Map", out);
 
-    // Расширенние черных зон(препятствия)
-    // TODO: нужно ли это расширение стен?
-    cv::Mat1b binaryDilated = erodeBinary(rank,
-                                          segmenterConfig.dilateConfig.kernelSize,
-                                          segmenterConfig.dilateConfig.iterations);
-    rank.convertTo(out, CV_8U, 255);
-    showMatDebug("Dilated Map", out);
-
     // Настройка параметров сегментации
     SegmentationParams segParams;
     segParams.maxIter = 50;
@@ -178,13 +172,13 @@ int main(int argc, char** argv)
     segParams.seedClearancePx = seedClearancePx;
 
     // Получение меток
-    LabelsInfo labels = LabelMapping::computeLabels(binaryDilated, /*invert=*/false);
+    LabelsInfo labels = LabelMapping::computeLabels(rank, /*invert=*/false);
 
     // Этап сегментации
-    auto zones = segmentByGaussianThreshold(binaryDilated, labels, segParams);
+    auto zones = segmentByGaussianThreshold(rank, labels, segParams);
 
     // Создание матрицы зон
-    cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
+    cv::Mat1i segmentation = cv::Mat::zeros(rank.size(), CV_32S);
     for (const auto &z : zones) {
         segmentation.setTo(z.label, z.mask);
     }
