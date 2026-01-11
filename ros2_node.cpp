@@ -216,7 +216,9 @@ static std::string generatePddlFromMap(const cv::Mat1b &raw,
     mapInfo.width = aligned.cols;
     mapInfo.theta += alignmentAngle;
 
-    auto [rank, crop] = MapPreprocessing::generateDenoisedAlone(aligned, cfg.denoiseConfig);
+    auto [rank, crop] = MapPreprocessing::generateDenoisedAlone(aligned,
+                                                                cfg.denoiseConfig,
+                                                                mapInfo.resolution);
     {
         // Account for cropping when translating pixel coords to the world frame.
         int newWidth  = aligned.cols - crop.left - crop.right;
@@ -283,6 +285,10 @@ public:
 
         config_.denoiseConfig.rankBinaryThreshold =
             this->declare_parameter("denoise.rank_binary_threshold", 0.2);
+        config_.denoiseConfig.compOutMinAreaM2 =
+            this->declare_parameter("denoise.comp_out_min_area_m2", 0.0);
+        config_.denoiseConfig.compInMinAreaM2 =
+            this->declare_parameter("denoise.comp_in_min_area_m2", 0.0);
         config_.dilateConfig.kernelSize =
             this->declare_parameter("dilate.kernel_size", 3);
         config_.dilateConfig.iterations =
@@ -360,13 +366,20 @@ private:
         out.data = pddl;
         pddl_pub_->publish(out);
 
+        cv::Mat rgb_vis;
+        if (vis.channels() == 3) {
+            cv::cvtColor(vis, rgb_vis, cv::COLOR_BGR2RGB);
+        } else {
+            rgb_vis = vis;
+        }
+
         sensor_msgs::msg::Image img_msg;
         img_msg.header = msg->header;
-        img_msg.height = vis.rows;
-        img_msg.width = vis.cols;
-        img_msg.encoding = "bgr8";
-        img_msg.step = static_cast<sensor_msgs::msg::Image::_step_type>(vis.step);
-        img_msg.data.assign(vis.datastart, vis.dataend);
+        img_msg.height = rgb_vis.rows;
+        img_msg.width = rgb_vis.cols;
+        img_msg.encoding = "rgb8";
+        img_msg.step = static_cast<sensor_msgs::msg::Image::_step_type>(rgb_vis.step);
+        img_msg.data.assign(rgb_vis.datastart, rgb_vis.dataend);
         segmentation_pub_->publish(img_msg);
 
         publishRcAgentZones(agent_zones);
