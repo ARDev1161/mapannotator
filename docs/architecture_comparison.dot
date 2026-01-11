@@ -1,0 +1,45 @@
+digraph ArchitectureComparison {
+    rankdir=LR;
+    fontname="Helvetica";
+
+    node [shape=rect, style="filled", fontname="Helvetica"];
+
+    input [label="Occupancy Grid / PGM", fillcolor="#d0ebff", color="#1864ab"];
+    preprocess [label="Общая предобработка\n- выравнивание\n- денойзинг\n- морфология", fillcolor="#e7f5ff", color="#1c7ed6"];
+
+    input -> preprocess;
+
+    subgraph cluster_mapannotator {
+        label="Map Annotator";
+        color="#c3fae8";
+        style=filled;
+        fillcolor="#edfff6";
+
+        ma_labels [label="LabelMapping\nисходные центроиды семян", fillcolor="#b2f2bb", color="#2b8a3e"];
+        ma_gauss [label="Итеративный Gaussian threshold\n(erode + blur + threshold)", fillcolor="#ffec99", color="#e67700"];
+        ma_post [label="Постобработка\nattach/merge + keep centroid", fillcolor="#ffe8cc", color="#f08c00"];
+        ma_graph [label="ZoneGraph + ZoneClassifier\n(pixel -> world)", fillcolor="#d0bfff", color="#862e9c"];
+        ma_outputs [label="PDDL + ROS 2 + визуализация", fillcolor="#fcc2d7", color="#c2255c"];
+    }
+
+    subgraph cluster_sharif {
+        label="Sharif et al. (Down-sampling)";
+        color="#eebefa";
+        style=filled;
+        fillcolor="#f8f0fc";
+
+        ds_down [label="Итеративное down-sampling\n(blur sigma grows + threshold 0.95)", fillcolor="#fff3bf", color="#f59f00"];
+        ds_leaf [label="Отслеживание birth/death\nсуперпозиция листовых семян", fillcolor="#ffe066", color="#c07600"];
+        ds_water [label="Watershed по ridges\n(Meijering filter)", fillcolor="#ffdddd", color="#d9480f"];
+        ds_merge [label="Heuristic merging\n(площадь / граница)", fillcolor="#ffc9de", color="#a61e4d"];
+        ds_eval [label="Граф сегментов + метрики\n(Recall, AMI, IoU)", fillcolor="#dbe4ff", color="#364fc7"];
+    }
+
+    preprocess -> ma_labels;
+    preprocess -> ds_down;
+
+    ma_labels -> ma_gauss -> ma_post -> ma_graph -> ma_outputs;
+
+    ds_down -> ds_leaf -> ds_water -> ds_merge -> ds_eval;
+
+}

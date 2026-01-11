@@ -59,11 +59,11 @@ inline cv::Scalar zoneColor(const ZoneType& z)
     /* 1. YAML colour specified → use it */
     if (z.info && z.info->color) return *z.info->color;
 
-    /* 2. otherwise derive a pastel colour from hash(path) */
+    /* 2. otherwise derive a stronger colour from hash(path) */
     std::size_t h = std::hash<std::string>{}( z.path() );
-    int b = 150 + (h & 0x3F);        // 150-213  (пастель)
-    int g = 150 + ((h >> 6 ) & 0x3F);
-    int r = 150 + ((h >> 12) & 0x3F);
+    int b = 60 + (h & 0x8F);        // 60-203
+    int g = 60 + ((h >> 7 ) & 0x8F);
+    int r = 60 + ((h >> 14) & 0x8F);
     return cv::Scalar(b,g,r);
 }
 

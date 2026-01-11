@@ -56,7 +56,19 @@ inline void drawZoneGraphOnMap(const GraphT& g,
 {
     for (auto& n : g.allNodes())
     {
-        cv::Point pa = worldToPixel(n->centroid(), info);
+        const cv::Point pa = worldToPixel(n->centroid(), info);
+
+        cv::circle(canvas, pa, radius_px, zoneColor(n->type()), cv::FILLED, cv::LINE_AA);
+        cv::circle(canvas, pa, radius_px, {50, 50, 50}, 1, cv::LINE_AA);
+        std::string label = std::to_string(n->id()) + ":" + n->type().info->path;
+        cv::putText(canvas,
+                    label,
+                    pa + cv::Point(5, -5),
+                    cv::FONT_HERSHEY_PLAIN,
+                    0.9,
+                    {0, 42, 42},
+                    1);
+
         for (const auto& p : n->neighbours())
         {
             auto nb = p.neighbour.lock();
@@ -73,17 +85,6 @@ inline void drawZoneGraphOnMap(const GraphT& g,
                             cv::FONT_HERSHEY_PLAIN, 0.8, {42,0,0}, 1);
             }
         }
-    }
-
-    for (auto& n : g.allNodes())
-    {
-        cv::Point pc = worldToPixel(n->centroid(), info);
-        cv::circle(canvas, pc, radius_px,
-                   zoneColor(n->type()), cv::FILLED, cv::LINE_AA);
-        cv::circle(canvas, pc, radius_px, {50,50,50}, 1, cv::LINE_AA);
-        std::string label = std::to_string(n->id()) + ":" + n->type().info->path;
-        cv::putText(canvas, label, pc + cv::Point(5,-5),
-                    cv::FONT_HERSHEY_PLAIN, 0.9, {0,42,42}, 1);
     }
 }
 

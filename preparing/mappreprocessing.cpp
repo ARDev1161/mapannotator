@@ -205,8 +205,10 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
                           int kernelSize,
                           int maxIter) // «предохранитель» от бесконечности
 {
-    cv::Mat out;
-    showMat("raw src", src);
+    CV_UNUSED(maxIter); // оставлен для совместимости сигнатуры
+    CV_UNUSED(kernelSize);
+
+    showMatDebug("raw src", src);
 
     CV_Assert(src.type() == CV_8UC1);
     const uchar GRAY = 205; // 205 default for ROS2 maps
@@ -220,56 +222,58 @@ cv::Mat MapPreprocessing::unknownRegionsDissolution(const cv::Mat& src,
     cv::bitwise_or(black, white, bw);
     cv::bitwise_not(bw, gray);                    // всё, что не 0 и не 255
 
-    showMat("BLACK", black);
-    showMat("WHITE", white);
-    showMat("Gray", gray);
+    showMatDebug("BLACK", black);
+    showMatDebug("WHITE", white);
+    showMatDebug("Gray", gray);
 
     /* если серого нет – ничего делать не нужно */
     if (!cv::countNonZero(gray))
         return src.clone();
 
-    /* ---------- struct-элемент ---------- */
-    cv::Mat kernel = cv::getStructuringElement(
-        cv::MORPH_RECT, cv::Size(kernelSize, kernelSize));
+    const bool hasBlack = cv::countNonZero(black) > 0;
+    const bool hasWhite = cv::countNonZero(white) > 0;
 
-    /* ---------- рабочие буферы ---------- */
-    cv::Mat tmp, newMask, invGray;
-
-    for (int it = 0; (it < maxIter) && cv::countNonZero(gray); ++it)
-    {
-        /* ===== 1. ЧЁРНЫЙ шаг: erode → пересечение с gray ===== */
-        cv::erode(black, tmp, kernel);                // tmp = erode(black)
-        cv::bitwise_and(tmp, gray, newMask);          // новые чёрные
-        if (cv::countNonZero(newMask))
-        {
-            black |= newMask;                         // black ← black ∪ new
-            cv::bitwise_not(newMask, invGray);
-            gray &= invGray;                          // gray ← gray \ new
-        }
-
-        if (!cv::countNonZero(gray)) break;           // серый кончился
-
-        /* ===== 2. БЕЛЫЙ шаг: dilate → пересечение с gray ===== */
-        cv::dilate(white, tmp, kernel);               // tmp = dilate(white)
-        cv::bitwise_and(tmp, gray, newMask);          // новые белые
-        if (cv::countNonZero(newMask))
-        {
-            white |= newMask;                         // white ← white ∪ new
-            cv::bitwise_not(newMask, invGray);
-            gray &= invGray;                          // gray ← gray \ new
-        }
-    }
-
-    showMat("BLACK proc", black);
-    showMat("WHITE proc", white);
-    showMat("Gray proc", gray);
-
-    /* ---------- сборка итогового изображения ---------- */
-    cv::Mat dst(src.size(), CV_8UC1, cv::Scalar(GRAY));   // базово — серый
+    // ---------- Быстрая разметка неопределённых областей ----------
+    cv::Mat dst(src.size(), CV_8UC1, cv::Scalar(GRAY));
     dst.setTo(0, black);
     dst.setTo(254, white);
 
-    showMat("dst", dst);
+    if (!hasBlack && !hasWhite)
+        return dst; // только серое — оставить как есть
+
+    if (!hasBlack || !hasWhite)
+    {
+        // Только один класс присутствует: заливаем серое им.
+        dst.setTo(hasBlack ? 0 : 254, gray);
+        showMatDebug("dst", dst);
+        return dst;
+    }
+
+    // Есть оба класса: выбираем ближайший через distance transform.
+    cv::Mat invBlack, invWhite;
+    cv::bitwise_not(black, invBlack);   // 0 там, где black=255
+    cv::bitwise_not(white, invWhite);   // 0 там, где white=255
+
+    cv::Mat1f distToBlack, distToWhite;
+    cv::distanceTransform(invBlack, distToBlack, cv::DIST_L2, 3);
+    cv::distanceTransform(invWhite, distToWhite, cv::DIST_L2, 3);
+
+    // Выбираем класс с минимальной дистанцией.
+    for (int y = 0; y < dst.rows; ++y)
+    {
+        uchar *dstRow = dst.ptr<uchar>(y);
+        const uchar *grayRow = gray.ptr<uchar>(y);
+        const float *dbRow = distToBlack.ptr<float>(y);
+        const float *dwRow = distToWhite.ptr<float>(y);
+        for (int x = 0; x < dst.cols; ++x)
+        {
+            if (!grayRow[x])
+                continue;
+            dstRow[x] = (dbRow[x] <= dwRow[x]) ? 0 : 254;
+        }
+    }
+
+    showMatDebug("dst", dst);
     return dst;    // RVO/NRVO или перемещение — без лишних копий
 }
 
@@ -359,17 +363,48 @@ cv::Mat MapPreprocessing::removeGrayIslands(const cv::Mat& src, int connectivity
 // Реализация генерации денойзенной карты.
 // Здесь вызываются функции из Segmentation для бинаризации, кадрирования, инверсии и удаления шумовых компонентов.
 std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlone(const cv::Mat& raw,
-    const DenoiseConfig& config) {
+    const DenoiseConfig& config,
+    double mapResolution) {
 
     // Устраняем серые (неизвестные) зоны перед дальнейшей обработкой
     cv::Mat preprocessed = unknownRegionsDissolution(raw);
     cv::Mat out;
     preprocessed.convertTo(out, CV_8U, 255);
-    showMat("unknownRegionsDissolution", out);
+    showMatDebug("unknownRegionsDissolution", out);
 
-    // Создаем бинарную карту для определения области кадрирования.
-    cv::Mat binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
-    Segmentation::CropInfo cropInfo = Segmentation::cropSingleInfo(binaryForCrop, config.cropPadding);
+    // Создаем бинарную карту и вычисляем обрезку по наибольшему контуру.
+    cv::Mat1b binaryForCrop = makeBinary(preprocessed, config.binaryForCropThreshold * 255, 255);
+    cv::Mat binaryForCrop8u;
+    binaryForCrop.convertTo(binaryForCrop8u, CV_8U);
+
+    // Кадрируем по наибольшему контуру, чтобы отсечь пустые поля без ручного padding.
+    auto cropByLargestContour = [](const cv::Mat &binary) -> Segmentation::CropInfo
+    {
+        CV_Assert(binary.type() == CV_8UC1);
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        double bestArea = 0.0;
+        cv::Rect best;
+        for (const auto &c : contours)
+        {
+            double area = cv::contourArea(c);
+            if (area > bestArea)
+            {
+                bestArea = area;
+                best = cv::boundingRect(c);
+            }
+        }
+        if (bestArea <= 0.0)
+            return {};
+
+        Segmentation::CropInfo info;
+        info.left   = best.x;
+        info.top    = best.y;
+        info.right  = binary.cols - (best.x + best.width);
+        info.bottom = binary.rows - (best.y + best.height);
+        return info;
+    };
+    Segmentation::CropInfo cropInfo = cropByLargestContour(binaryForCrop8u);
 
     // Освобождаем память, если необходимо.
     // Обрезаем исходное изображение до ROI.
@@ -381,26 +416,36 @@ std::pair<cv::Mat, Segmentation::CropInfo> MapPreprocessing::generateDenoisedAlo
 
     // Инвертируем изображение.
     rank = makeInvert(rank);
+    auto toPixels = [mapResolution](double areaM2) {
+        if (areaM2 <= 0.0 || mapResolution <= 0.0)
+            return 0;
+        double pixelArea = mapResolution * mapResolution;
+        int px = static_cast<int>(std::ceil(areaM2 / pixelArea));
+        return std::max(px, 1);
+    };
+    int compOutMinSizePx = toPixels(config.compOutMinAreaM2);
+    int compInMinSizePx = toPixels(config.compInMinAreaM2);
+
     // Удаляем маленькие компоненты (снаружи).
-    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", config.compOutMinSize, 4, false);
+    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", compOutMinSizePx, 4, false);
     // Инвертируем снова.
     rank = makeInvert(rank);
     // Удаляем маленькие компоненты (внутри).
-    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", config.compInMinSize, 4, false);
+    rank = Segmentation::removeSmallConnectedComponents(rank, "fixed", compInMinSizePx, 4, false);
 
     // Финальная бинаризация.
     rank = makeBinary(rank, config.rankBinaryThreshold);
     return { rank, cropInfo };
 }
 
-bool MapPreprocessing::mapAlign(const cv::Mat& raw, cv::Mat& out, const AlignmentConfig& config){
+double MapPreprocessing::mapAlign(const cv::Mat &raw, cv::Mat &out, const AlignmentConfig &config)
+{
     double alignmentAngle = 0.0;
     if (config.enable) {
         // Находим угол выравнивания с помощью MapAlignment.
         alignmentAngle = MapPreprocessing::findAlignmentAngle(raw, config);
         out = MapPreprocessing::rotateImage(raw, alignmentAngle);
-        return true;
     }
 
-    return false;
+    return alignmentAngle;
 }

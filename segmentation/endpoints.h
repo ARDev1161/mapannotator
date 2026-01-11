@@ -4,6 +4,13 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/ximgproc.hpp>
 
+static cv::Mat1b getSkeletonMat(const cv::Mat1b &wallMask)
+{
+    cv::Mat1b skeleton;
+    cv::ximgproc::thinning(wallMask, skeleton, cv::ximgproc::THINNING_ZHANGSUEN);
+    return skeleton;
+}
+
 /**
  * @brief Возвращает цветную картинку: белый скелет + зелёные концевые точки.
  *        Одновременно собирает сами точки (endpoints) во внешний вектор.

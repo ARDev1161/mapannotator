@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
+#include <cstring>
 #include <cmath>
 #include <opencv2/opencv.hpp>
 
@@ -116,7 +118,8 @@ static cv::Mat makeInvert(const cv::Mat& src) {
 }
 
 /// Threshold image to binary.
-static cv::Mat makeBinary(const cv::Mat& src, double threshold, double maxValue = 1.0) {
+static cv::Mat1b makeBinary(const cv::Mat &src, double threshold, double maxValue = 1.0)
+{
     cv::Mat binary;
     cv::threshold(src, binary, threshold, maxValue, cv::THRESH_BINARY);
     return binary;
@@ -237,9 +240,19 @@ static inline bool toDisplayable(const cv::Mat& src,
     return true;
 }
 
+inline bool isHeadlessMode() {
+    static bool headless = [](){
+        if (const char* env = std::getenv("MAPANNOTATOR_HEADLESS"))
+            return std::strcmp(env, "0") != 0;
+        return false;
+    }();
+    return headless;
+}
+
 static void showMat(const std::string &windowName, const cv::Mat &mat, bool isColor = true)
 {
-#ifdef SHOW_DEBUG_IMAGES
+    if (isHeadlessMode())
+        return;
     cv::Mat vis;
     if(toDisplayable(mat, vis, isColor))
     {
@@ -247,6 +260,12 @@ static void showMat(const std::string &windowName, const cv::Mat &mat, bool isCo
         cv::resizeWindow(windowName, mat.cols, mat.rows);
         cv::imshow(windowName, mat);
     }
+}
+
+static void showMatDebug(const std::string &windowName, const cv::Mat &mat, bool isColor = true)
+{
+#ifdef SHOW_DEBUG_IMAGES
+    showMat(windowName, mat, isColor);
 #endif
 }
 

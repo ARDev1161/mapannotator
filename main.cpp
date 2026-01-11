@@ -22,8 +22,6 @@
 
 using namespace mapping;
 
-#define SHOW_DEBUG_IMAGES
-
 int main(int argc, char** argv)
 {
     if(argc < 2) {
@@ -37,6 +35,9 @@ int main(int argc, char** argv)
     // Если передан файл конфигурации, используем его, иначе "default.yml"
     std::string configFile = (argc >= 3) ? argv[2] : "default.yml";
 
+    double seedClearanceMeters = 0.0;
+    double seedClearancePx = 0.0;
+
     // Загружаем YAML-конфигурацию
     YAML::Node config;
     try {
@@ -47,11 +48,28 @@ int main(int argc, char** argv)
     }
     std::cout << "Loaded config from: " << configFile << std::endl;
 
+    if (config["segmentation"])
+    {
+        auto segNode = config["segmentation"];
+        if (segNode["seed_clearance_px"])
+            seedClearancePx = segNode["seed_clearance_px"].as<double>();
+        if (segNode["seed_clearance_m"])
+            seedClearanceMeters = segNode["seed_clearance_m"].as<double>();
+    }
+    if (seedClearanceMeters <= 0.0 && config["robot"])
+    {
+        auto robotNode = config["robot"];
+        if (robotNode["radius"])
+            seedClearanceMeters = robotNode["radius"].as<double>();
+        else if (robotNode["diameter"])
+            seedClearanceMeters = 0.5 * robotNode["diameter"].as<double>();
+    }
+
     // Определяем имя map.yaml: то же, что и pgmFile, только с расширением .yaml
     std::string mapYamlFile = pgmFile.substr(0, pgmFile.find_last_of('.')) + ".yaml";
     bool mapYamlLoaded = false;
     std::vector<double> map_origin; // ожидается вектор из 3 элементов: [x, y, theta]
-    double resolution = 1.0;         // значение по умолчанию (метров на пиксель)
+    double resolution = 0.1;         // значение по умолчанию (метров на пиксель)
 
     if (std::filesystem::exists(mapYamlFile)) {
         try {
@@ -96,7 +114,7 @@ int main(int argc, char** argv)
     }
     std::cout << "Loaded image: " << pgmFile << " (size: " << raw.cols << "x" << raw.rows << ")" << std::endl;
 
-//    showMat("Raw Map", raw);
+    showMatDebug("Raw Map", raw);
 
     // Заполнение структуры MapInfo
     mapInfo.resolution = resolution;
@@ -106,69 +124,78 @@ int main(int argc, char** argv)
     mapInfo.height = raw.rows;
     mapInfo.width = raw.cols;
 
+    if (seedClearancePx <= 0.0 && seedClearanceMeters > 0.0 && mapInfo.resolution > 0.0)
+        seedClearancePx = seedClearanceMeters / mapInfo.resolution;
+
     cv::Mat raw8u;
     raw.convertTo(raw8u, CV_8UC1);
 
+    // выравнивание карты(поворот)
     cv::Mat aligned;
-    MapPreprocessing::mapAlign(raw8u, aligned, segmenterConfig.alignmentConfig);
+    double alignmentAngle = MapPreprocessing::mapAlign(raw8u,
+                                                       aligned,
+                                                       segmenterConfig.alignmentConfig);
+    mapInfo.theta += alignmentAngle;
 
-   showMat("aligned Map", aligned);
+    if (aligned.empty())
+        aligned = raw8u.clone();
+    showMatDebug("aligned Map", aligned);
 
-    // Этап денойзинга.
-    auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned, segmenterConfig.denoiseConfig);
+    // Этап денойзинга
+    cv::Mat out;
+    auto [rank, cropInfo] = MapPreprocessing::generateDenoisedAlone(aligned,
+                                                                    segmenterConfig.denoiseConfig,
+                                                                    mapInfo.resolution);
+    {
+        // Crop shifts the origin by removed left/bottom margins; apply to mapInfo.
+        int newWidth  = aligned.cols - cropInfo.left - cropInfo.right;
+        int newHeight = aligned.rows - cropInfo.top  - cropInfo.bottom;
+        if (newWidth > 0 && newHeight > 0) {
+            double dx = cropInfo.left   * mapInfo.resolution;
+            double dy = cropInfo.bottom * mapInfo.resolution;
+            double c  = std::cos(mapInfo.theta);
+            double s  = std::sin(mapInfo.theta);
+            mapInfo.originX += dx * c - dy * s;
+            mapInfo.originY += dx * s + dy * c;
+            mapInfo.width  = rank.cols;
+            mapInfo.height = rank.rows;
+        }
+    }
+    rank.convertTo(out, CV_8U, 255);
+    showMatDebug("Denoised Map", out);
 
-   cv::Mat out;
-   rank.convertTo(out, CV_8U, 255);
-   showMat("Denoised Map", out);
+    // Настройка параметров сегментации
+    SegmentationParams segParams;
+    segParams.maxIter = 50;
+    segParams.sigmaStep = 0.5;
+    segParams.threshold = 0.5;
+    segParams.seedClearancePx = seedClearancePx;
 
-    // Расширенние черных зон(препятствия)
-    cv::Mat1b binaryDilated = erodeBinary(rank, segmenterConfig.dilateConfig.kernelSize, segmenterConfig.dilateConfig.iterations);
+    // Получение меток
+    LabelsInfo labels = LabelMapping::computeLabels(rank, /*invert=*/false);
 
+    // Этап сегментации
+    auto zones = segmentByGaussianThreshold(rank, labels, segParams);
 
-    cv::Mat1b wallMask;
-    cv::compare(binaryDilated, 0, wallMask, cv::CMP_EQ);   // 255 там, где стена
-//    cv::Mat1b skeleton;
-//    cv::Mat sk8;
-//    cv::ximgproc::thinning(wallMask, skeleton, cv::ximgproc::THINNING_ZHANGSUEN);
-//    skeleton.convertTo(sk8, CV_8U, 255);
-//            std::cout << "skeleton non-zero = " << cv::countNonZero(skeleton) << std::endl;
-//    showMat("Skeleton", sk8);
-
-//    std::vector<cv::Point> ends;
-//    showMat("Skeleton + endpoints", visualizeSkeletonEndpoints(skeleton, &ends));
-
-//    cv::Mat1b endpointsMask = drawSkeletonEndpoints(skeleton, 3);
-//    showMat("Endpoints mask", endpointsMask); // inflation radius
-
-    LabelsInfo labels;
-    auto zones = segmentByGaussianThreshold(binaryDilated, labels, 50, 0.5);
-
-    cv::Mat1i segmentation = cv::Mat::zeros(binaryDilated.size(), CV_32S);
-            int iter = 0;
-    for (const auto& z : zones) {
-
-        // cv::Mat1b seg8u;
-        // z.mask.convertTo(seg8u, CV_8U, 255);       // CV_8U для applyColorMap
-        // showMat("Zone №" + std::to_string(z.label), seg8u);
-
+    // Создание матрицы зон
+    cv::Mat1i segmentation = cv::Mat::zeros(rank.size(), CV_32S);
+    for (const auto &z : zones) {
         segmentation.setTo(z.label, z.mask);
     }
 
-    cv::Mat1i seg = segmentation;                     // ваша сегментация (0 = стены)
-    double minVal, maxVal;
-    cv::minMaxLoc(seg, &minVal, &maxVal);     // нужен maxVal ≥ 1
-    cv::Mat1b gray8;
-    seg.convertTo(gray8, CV_8U,
-                  maxVal ? 255.0 / maxVal : 1.0,   // α (scale)
-                  0);                              // β (shift)
-
+    // Генерация графа связности зон
     ZoneGraph graph;
     buildGraph(graph, zones, segmentation, mapInfo, labels.centroids);
 
-    cv::Mat vis = colorizeSegmentation(segmentation, wallMask, cv::COLORMAP_JET);
+    // Отрисовка графа связности поверх кадрированного/выравненного изображения
+    cv::Mat vis = renderZonesOverlay(zones, aligned, cropInfo, 0.65);
     mapping::drawZoneGraphOnMap(graph, vis, mapInfo);
 
-    cv::imshow("segmented", vis);
+    cv::imwrite("segmentation_overlay.png", vis);
+    if(!isHeadlessMode())
+    {
+        cv::imshow("segmented", vis);
+    }
 
     PDDLGenerator gen(graph);
     std::cerr << "\(define \(problem PROBLEM_NAME)\n"
@@ -186,6 +213,9 @@ int main(int argc, char** argv)
     //    out << gen.goal("zone_15");
     //    out << ")\n";
 
-    std::cout << "Press any key to exit..." << std::endl;
-    cv::waitKey(0);
+    if(!isHeadlessMode())
+    {
+        std::cout << "Press any key to exit..." << std::endl;
+        cv::waitKey(0);
+    }
 }

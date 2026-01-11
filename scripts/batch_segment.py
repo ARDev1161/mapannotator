@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""
+Batch runner for mapannotator CLI.
+
+Usage:
+    python scripts/batch_segment.py \
+        --binary build/mapannotator \
+        --maps-dir test_maps \
+        --output-dir batch_results
+
+The script scans the maps directory for *.pgm files, optionally picks the
+matching *.yaml metadata, runs the CLI for each map and stores artefacts
+(stdout/stderr, extracted PDDL, graph files) plus a YAML summary per map.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import textwrap
+import time
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import yaml
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("MAPANNOTATOR_HEADLESS", "1")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Batch test harness for the mapannotator CLI tool",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--binary",
+        type=Path,
+        default=Path("build") / "mapannotator",
+        help="Path to the compiled mapannotator executable",
+    )
+    parser.add_argument(
+        "--maps-dir",
+        type=Path,
+        default=Path("test_maps"),
+        help="Directory containing *.pgm maps (optional *.yaml metadata)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("batch_results"),
+        help="Directory where per-map results will be written",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Optional YAML config passed as the second CLI argument",
+    )
+    parser.add_argument(
+        "--default-config",
+        type=Path,
+        default=Path("default.yml"),
+        help="Fallback config used when a map has no accompanying YAML",
+    )
+    parser.add_argument(
+        "--invert",
+        action="store_true",
+        help="Invert input PGM maps before processing (for test datasets with inverted colors)",
+    )
+    parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="Remove global artefacts (graph.dot, graph_preview.png) before every run",
+    )
+    parser.add_argument(
+        "--map-names",
+        nargs="+",
+        default=["input"],
+        help="Filename stems to look for recursively (e.g. 'input' -> input.pgm/input.png)",
+    )
+    parser.add_argument(
+        "--map-extensions",
+        nargs="+",
+        default=[".pgm", ".png"],
+        help="Extensions (with leading dot) that will be considered as map images",
+    )
+    return parser.parse_args()
+
+
+def collect_maps(
+    maps_dir: Path,
+    preferred_names: Optional[List[str]] = None,
+    extensions: Optional[List[str]] = None,
+) -> List[Path]:
+    if not maps_dir.is_dir():
+        raise FileNotFoundError(f"Maps directory not found: {maps_dir}")
+    preferred_names = preferred_names or ["input"]
+    extensions = extensions or [".pgm", ".png"]
+
+    matches: List[Path] = []
+    for name in preferred_names:
+        for ext in extensions:
+            matches.extend(sorted(maps_dir.rglob(f"{name}{ext}")))
+
+    if matches:
+        return matches
+
+    raise RuntimeError(
+        f"No map files found in {maps_dir} for stems {preferred_names} and extensions {extensions}"
+    )
+
+
+def find_metadata(map_file: Path) -> Optional[Path]:
+    candidates = [
+        map_file.with_suffix(".yaml"),
+        map_file.with_suffix(".yml"),
+        map_file.parent / "map.yaml",
+        map_file.parent / "map.yml",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def run_cli(
+    binary: Path,
+    map_file: Path,
+    meta_file: Optional[Path],
+    config_file: Optional[Path],
+    workdir: Path,
+    invert: bool = False,
+) -> subprocess.CompletedProcess:
+    abs_map = map_file.resolve()
+    abs_meta = meta_file.resolve() if meta_file else None
+    abs_config = config_file.resolve() if config_file else None
+
+    cmd = [str(binary), str(abs_map)]
+    if abs_meta is not None and abs_meta.is_file():
+        cmd.append(str(abs_meta))
+    elif abs_config is not None:
+        cmd.append(str(abs_config))
+    # When both meta and config are provided, meta takes precedence as the CLI
+    # expects the second argument to be the map yaml. Users can bake additional
+    # config into default.yml if needed.
+
+    env = os.environ.copy()
+    if invert:
+        env["MAPANNOTATOR_INVERT_INPUT"] = "1"
+
+    result = subprocess.run(
+        cmd,
+        cwd=str(workdir),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    return result
+
+
+def write_text(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+
+
+def extract_pddl(stderr: str) -> str:
+    start = stderr.find("(define ")
+    if start == -1:
+        return ""
+    return stderr[start:]
+
+
+def copy_if_exists(src: Path, dst: Path) -> Optional[Path]:
+    if src.exists():
+        shutil.copy2(src, dst)
+        return dst
+    return None
+
+
+def clean_global_artifacts(workdir: Path, files: List[str]) -> None:
+    for name in files:
+        path = workdir / name
+        if path.exists():
+            if path.is_file():
+                path.unlink()
+            else:
+                shutil.rmtree(path)
+
+
+def process_map(
+    binary: Path,
+    map_file: Path,
+    maps_root: Path,
+    config_file: Optional[Path],
+    output_root: Path,
+    workdir: Path,
+    clean_artifacts_flag: bool,
+    invert: bool,
+) -> Dict[str, Optional[str]]:
+    rel_parent = map_file.parent.relative_to(maps_root)
+    name = map_file.stem
+    output_dir = output_root / rel_parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    global_artifacts = ["graph.dot", "graph_preview.png", "graph_preview.jpg", "segmentation_overlay.png"]
+    if clean_artifacts_flag:
+        clean_global_artifacts(workdir, global_artifacts)
+
+    meta = find_metadata(map_file)
+    start_time = time.perf_counter()
+    result = run_cli(binary, map_file, meta, config_file, workdir, invert=invert)
+    run_duration = time.perf_counter() - start_time
+
+    stdout_path = output_dir / f"{name}_stdout.txt"
+    stderr_path = output_dir / f"{name}_stderr.txt"
+    write_text(stdout_path, result.stdout)
+    write_text(stderr_path, result.stderr)
+
+    pddl = extract_pddl(result.stderr)
+    pddl_path = None
+    if pddl:
+        pddl_path = output_dir / f"{name}.pddl"
+        write_text(pddl_path, pddl)
+
+    copied_artifacts: Dict[str, Optional[str]] = {}
+    for artifact in global_artifacts:
+        src = workdir / artifact
+        if src.exists():
+            dst = output_dir / f"{name}_{artifact}"
+            copy_if_exists(src, dst)
+            copied_artifacts[artifact] = str(dst)
+        else:
+            copied_artifacts[artifact] = None
+
+    summary = {
+        "map": str(map_file.resolve()),
+        "metadata": str(meta.resolve()) if meta else None,
+        "config": str(config_file.resolve()) if config_file else None,
+        "exit_code": result.returncode,
+        "stdout": str(stdout_path),
+        "stderr": str(stderr_path),
+        "pddl": str(pddl_path) if pddl_path else None,
+        "output_subdir": str(output_dir.relative_to(output_root)),
+        "duration_sec": run_duration,
+        "artifacts": copied_artifacts,
+    }
+
+    yaml_path = output_dir / f"{name}_summary.yaml"
+    with yaml_path.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(summary, fh, allow_unicode=True, sort_keys=False)
+
+    return summary
+
+
+def main() -> int:
+    args = parse_args()
+    binary = args.binary.resolve()
+    maps_dir = args.maps_dir.resolve()
+    output_dir = args.output_dir.resolve()
+    config_file = args.config.resolve() if args.config else None
+    default_config = args.default_config.resolve()
+    if config_file is None and default_config.is_file():
+        config_file = default_config
+
+    if not binary.is_file():
+        print(f"Binary not found: {binary}", file=sys.stderr, flush=True)
+        return 2
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    extensions = [ext if ext.startswith(".") else f".{ext}" for ext in args.map_extensions]
+    collect_start = time.perf_counter()
+    pgm_files = collect_maps(maps_dir, preferred_names=args.map_names, extensions=extensions)
+    collect_duration = time.perf_counter() - collect_start
+    try:
+        maps_label = maps_dir.relative_to(PROJECT_ROOT)
+    except ValueError:
+        maps_label = maps_dir
+    print(
+        f"[INFO] Found {len(pgm_files)} map(s) under {maps_label} "
+        f"in {collect_duration:.2f}s with stems {args.map_names} and extensions {extensions}",
+        flush=True,
+    )
+
+    summaries: List[Dict[str, Optional[str]]] = []
+    total = len(pgm_files)
+    for idx, pgm in enumerate(pgm_files, start=1):
+        rel_path = pgm.relative_to(maps_dir)
+        print(f"[INFO] ({idx}/{total}) Processing {rel_path} ...", flush=True)
+        summary = process_map(
+            binary=binary,
+            map_file=pgm,
+            maps_root=maps_dir,
+            config_file=config_file,
+            output_root=output_dir,
+            workdir=PROJECT_ROOT,
+            clean_artifacts_flag=args.clean_artifacts,
+            invert=args.invert,
+        )
+        summaries.append(summary)
+        if summary["exit_code"] != 0:
+            print(
+                textwrap.indent(Path(summary["stderr"]).read_text(), prefix="  "),
+                file=sys.stderr,
+                flush=True,
+            )
+        duration = summary.get("duration_sec")
+        if duration is not None:
+            print(f"[INFO]     Finished {rel_path} in {duration:.2f}s (exit {summary['exit_code']})", flush=True)
+
+    batch_summary_path = output_dir / "batch_summary.yaml"
+    with batch_summary_path.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(summaries, fh, allow_unicode=True, sort_keys=False)
+
+    print(f"[INFO] Processed {len(summaries)} map(s). Results stored in {output_dir}", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
